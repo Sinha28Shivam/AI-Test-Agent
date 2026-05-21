@@ -1,4 +1,4 @@
-export class logger {
+export class Logger {
     static info(message: string): void {
         const timestamp = new Date().toISOString();
         console.log(`[${timestamp}] [INFO] ${message}`);
@@ -19,3 +19,5 @@ export class logger {
         console.warn(`[${timestamp}] [WARN] ⚠ ${message}`);
     }
 }
+
+export const logger = Logger;

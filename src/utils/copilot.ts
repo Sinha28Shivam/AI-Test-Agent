@@ -45,9 +45,6 @@ export class Copilot {
           child.stdout.on("data", (data: Buffer) => {
             const chunk = data.toString();
             stdout += chunk;
-            if (chunk.length > 0) {
-              logger.info(`[COPILOT] ${chunk.substring(0, 80)}`);
-            }
           });
         }
 
@@ -55,7 +52,6 @@ export class Copilot {
           child.stderr.on("data", (data: Buffer) => {
             const chunk = data.toString();
             stderr += chunk;
-            logger.warn(`[COPILOT ERR] ${chunk.substring(0, 80)}`);
           });
         }
 
@@ -74,7 +70,8 @@ export class Copilot {
           if (code === 0 || code === null) {
             const result = stdout.trim();
             if (result) {
-              logger.success(`Copilot response received (${result.length} chars)`);
+              logger.success(`✓ Copilot response received (${result.length} chars)`);
+              logger.info(`[Response preview] ${result.substring(0, 200)}...`);
               resolve(result);
             } else {
               logger.error("Copilot returned empty output");
@@ -82,6 +79,7 @@ export class Copilot {
             }
           } else {
             logger.error(`Copilot exited with code ${code}`);
+            if (stderr) logger.error(`[STDERR] ${stderr.substring(0, 500)}`);
             reject(new Error(`Copilot CLI failed with code ${code}: ${stderr}`));
           }
         });
