@@ -4,6 +4,8 @@ import { FileManager } from "../utils/file-manager";
 import { DOMSnapshot } from "./dom-types";
 import { ScenarioResult } from "./scenario-agent";
 import path from "path";
+import fs from "fs";
+import yaml from "js-yaml";
 
 export class AIGeneratorAgent {
   static async generate(data: ScenarioResult): Promise<string> {
@@ -20,31 +22,40 @@ export class AIGeneratorAgent {
 
     // Include DOM element information if available
     const domContext = data.domSnapshot
-      ? `\n\nExtracted Page Elements:
-${this.formatDOMForPrompt(data.domSnapshot)}`
+      ? `\n\nExtracted Page Elements:\n${this.formatDOMForPrompt(data.domSnapshot)}`
       : "";
 
-    const prompt = `Generate a production-ready Playwright TypeScript test script with these requirements:
+    let prompt = "";
+    const promptPath = path.join(__dirname, "..", "test-script-prompt.yaml");
 
-Target URL: ${data.url}
-Test Scenarios: ${scenarioText}
-Action Keywords: ${keywordsText}${domContext}
+    try {
+      if (fs.existsSync(promptPath)) {
+        logger.info(`Loading test generation prompt template from: ${promptPath}`);
+        const fileContent = fs.readFileSync(promptPath, "utf8");
+        
+        // Parse the YAML template
+        const promptTemplate = yaml.load(fileContent) as any;
+        
+        // Populate the input section
+        if (promptTemplate && promptTemplate.input) {
+          promptTemplate.input.url = data.url;
+          promptTemplate.input.scenarios = data.scenarios;
+          promptTemplate.input.dom_snapshot = data.domSnapshot
+            ? this.formatDOMForPrompt(data.domSnapshot)
+            : "No DOM snapshot available";
+          promptTemplate.input.expected_test_count = data.scenarios.length;
+        }
 
-Requirements:
-1. Use @playwright/test framework
-2. Include proper imports and test setup
-3. Add page.goto("${data.url}") at the start of each test
-4. Create one test per scenario
-5. Use the extracted elements and selectors provided above when available
-6. Use generic, stable selectors (role-based, text content) - avoid brittle CSS selectors
-7. Add proper assertions (URL check, element visibility, content validation)
-8. Use waitForLoadState("domcontentloaded") by default.
-9. Avoid networkidle unless explicitly required.
-10. Include descriptive error messages in assertions
-11. Add appropriate timeouts (30-60 seconds for page loads)
-12. Make tests independent and reusable
-13. Use async/await properly
-14. Return ONLY valid TypeScript code. No markdown, no comments, no explanations.`;
+        // Dump back to YAML string
+        prompt = yaml.dump(promptTemplate, { noRefs: true, forceQuotes: false });
+      } else {
+        logger.warn(`Prompt template not found at ${promptPath}, falling back to hardcoded prompt`);
+        prompt = this.getFallbackPrompt(data, scenarioText, keywordsText, domContext);
+      }
+    } catch (error) {
+      logger.error(`Error loading prompt template: ${error}`);
+      prompt = this.getFallbackPrompt(data, scenarioText, keywordsText, domContext);
+    }
 
     try {
       logger.info("Calling AI provider for code generation...");
@@ -151,6 +162,35 @@ ${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
     } else {
       logger.success("✓ All validations passed");
     }
+  }
+
+  private static getFallbackPrompt(
+    data: ScenarioResult,
+    scenarioText: string,
+    keywordsText: string,
+    domContext: string
+  ): string {
+    return `Generate a production-ready Playwright TypeScript test script with these requirements:
+
+Target URL: ${data.url}
+Test Scenarios: ${scenarioText}
+Action Keywords: ${keywordsText}${domContext}
+
+Requirements:
+1. Use @playwright/test framework
+2. Include proper imports and test setup
+3. Add page.goto("${data.url}") at the start of each test
+4. Create one test per scenario
+5. Use the extracted elements and selectors provided above when available
+6. Use generic, stable selectors (role-based, text content) - avoid brittle CSS selectors
+7. Add proper assertions (URL check, element visibility, content validation)
+8. Use waitForLoadState("domcontentloaded") by default.
+9. Avoid networkidle unless explicitly required.
+10. Include descriptive error messages in assertions
+11. Add appropriate timeouts (30-60 seconds for page loads)
+12. Make tests independent and reusable
+13. Use async/await properly
+14. Return ONLY valid TypeScript code. No markdown, no comments, no explanations.`;
   }
 }
 

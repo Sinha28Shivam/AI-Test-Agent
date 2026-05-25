@@ -14,13 +14,15 @@
   "license": "ISC",
   "description": "GitHub Copilot CLI Autonomous Testing Framework (Copilot for code generation + analysis + Playwright for execution)",
   "dependencies": {
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3",
+    "@anthropic-ai/sdk": "^0.24.3",
     "@playwright/test": "^1.40.0",
     "axios": "^1.6.0",
-    "@anthropic-ai/sdk": "^0.24.3"
+    "js-yaml": "^4.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.1",
     "playwright": "^1.40.0"
   }

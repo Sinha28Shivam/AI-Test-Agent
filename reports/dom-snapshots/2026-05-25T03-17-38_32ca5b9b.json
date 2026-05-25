@@ -1,0 +1,67 @@
+{
+  "url": "https://demoqa.com",
+  "timestamp": "2026-05-25",
+  "extractedAt": "2026-05-25T03:17:38.363Z",
+  "totalElements": 6,
+  "elements": [
+    {
+      "selector": "a[href=\"/elements\"]",
+      "type": "link",
+      "text": "Elements",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/elements"
+    },
+    {
+      "selector": "a[href=\"/forms\"]",
+      "type": "link",
+      "text": "Forms",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/forms"
+    },
+    {
+      "selector": "a[href=\"/alertsWindows\"]",
+      "type": "link",
+      "text": "Alerts, Frame & Windows",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/alertsWindows"
+    },
+    {
+      "selector": "a[href=\"/widgets\"]",
+      "type": "link",
+      "text": "Widgets",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/widgets"
+    },
+    {
+      "selector": "a[href=\"/interaction\"]",
+      "type": "link",
+      "text": "Interactions",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/interaction"
+    },
+    {
+      "selector": "a[href=\"/books\"]",
+      "type": "link",
+      "text": "Book Store Application",
+      "tagName": "a",
+      "isInteractive": true,
+      "href": "/books"
+    }
+  ],
+  "statistics": {
+    "buttons": 0,
+    "inputs": 0,
+    "links": 6,
+    "images": 0,
+    "forms": 0,
+    "headers": 0,
+    "interactiveElements": 6,
+    "totalElements": 6
+  },
+  "extractionMethod": "playwright"
+}
