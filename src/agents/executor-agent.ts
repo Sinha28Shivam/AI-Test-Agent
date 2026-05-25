@@ -70,11 +70,24 @@ export class ExecutorAgent {
 
       logger.info(`Starting Playwright test execution for: ${testFilePath}`);
 
-      const child = spawn("cmd.exe", ["/c", "npx", "playwright", "test", testFilePath, "--reporter=json"], {
-        shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
-        cwd: process.cwd()
-      });
+      const fileFilter = this.toPlaywrightFileFilter(testFilePath);
+      const child = spawn(
+        "cmd.exe",
+        [
+          "/c",
+          "npx",
+          "playwright",
+          "test",
+          "--config=playwright.config.ts",
+          "--reporter=json",
+          fileFilter
+        ],
+        {
+          shell: false,
+          stdio: ["pipe", "pipe", "pipe"],
+          cwd: process.cwd()
+        }
+      );
 
       let stdout = "";
       let stderr = "";
@@ -202,7 +215,7 @@ export class ExecutorAgent {
           duration: duration
         });
       } else {
-        const errorInfo = this.extractErrorInfo(stderr);
+        const errorInfo = this.extractErrorInfo(`${stderr}\n${stdout}`);
         result.failed = 1;
         result.total = 1;
         result.tests.push({
@@ -337,6 +350,17 @@ export class ExecutorAgent {
     }
 
     return tests;
+  }
+
+  private static toPlaywrightFileFilter(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, "/");
+    const segments = normalized.split("/");
+    const escapedSegments = segments.map((s) =>
+      s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    );
+
+    // Playwright treats CLI args as RegExp filters; allow both '/' and '\\' separators.
+    return `${escapedSegments.join("[\\\\/]")}$`;
   }
 
   static saveResults(result: TestResult, reportPath: string): void {

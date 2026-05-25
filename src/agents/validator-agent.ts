@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { logger } from "../utils/logger";
 import { FileManager } from "../utils/file-manager";
+import path from "path";
 
 export interface ValidationResult {
   syntaxScore: number;
@@ -28,11 +29,22 @@ export class ValidatorAgent {
 
       const issues: string[] = [];
 
-      // Step 1: Validate TypeScript syntax
-      logger.info("Validating TypeScript syntax...");
-      const syntaxScore = await this.validateTypeScriptSyntax(scriptPath);
-      if (syntaxScore < 10) {
-        issues.push("TypeScript syntax validation failed");
+      // Step 1: Validate syntax (JS or TS depending on extension)
+      const ext = path.extname(scriptPath).toLowerCase();
+      let syntaxScore = 10;
+
+      if (ext === ".js" || ext === ".cjs" || ext === ".mjs") {
+        logger.info("Validating JavaScript syntax...");
+        syntaxScore = await this.validateJavaScriptSyntax(scriptPath);
+        if (syntaxScore < 10) {
+          issues.push("JavaScript syntax validation failed");
+        }
+      } else {
+        logger.info("Validating TypeScript syntax...");
+        syntaxScore = await this.validateTypeScriptSyntax(scriptPath);
+        if (syntaxScore < 10) {
+          issues.push("TypeScript syntax validation failed");
+        }
       }
 
       // Step 2: Validate Playwright syntax
@@ -104,6 +116,58 @@ export class ValidatorAgent {
     }
   }
 
+  private static async validateJavaScriptSyntax(
+    scriptPath: string
+  ): Promise<number> {
+    return new Promise((resolve) => {
+      const child = spawn("node", ["--check", scriptPath], {
+        shell: true,
+        stdio: ["pipe", "pipe", "pipe"],
+        cwd: process.cwd()
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      if (child.stdout) {
+        child.stdout.on("data", (data: Buffer) => {
+          stdout += data.toString();
+        });
+      }
+
+      if (child.stderr) {
+        child.stderr.on("data", (data: Buffer) => {
+          stderr += data.toString();
+        });
+      }
+
+      const timeout = setTimeout(() => {
+        child.kill();
+        logger.warn("JavaScript validation timeout");
+        resolve(5);
+      }, 30000);
+
+      child.on("close", (code: number) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          logger.success("JavaScript syntax is valid");
+          resolve(10);
+        } else {
+          logger.warn(`JavaScript validation failed with code ${code}`);
+          const combined = (stderr + "\n" + stdout).trim();
+          logger.warn(`Errors: ${combined.substring(0, 400)}`);
+          resolve(4);
+        }
+      });
+
+      child.on("error", (err: Error) => {
+        clearTimeout(timeout);
+        logger.warn(`JavaScript validation error: ${err.message}`);
+        resolve(3);
+      });
+    });
+  }
+
   private static async validateTypeScriptSyntax(
     scriptPath: string
   ): Promise<number> {
@@ -114,7 +178,14 @@ export class ValidatorAgent {
         cwd: process.cwd()
       });
 
+      let stdout = "";
       let stderr = "";
+
+      if (child.stdout) {
+        child.stdout.on("data", (data: Buffer) => {
+          stdout += data.toString();
+        });
+      }
 
       if (child.stderr) {
         child.stderr.on("data", (data: Buffer) => {
@@ -135,7 +206,8 @@ export class ValidatorAgent {
           resolve(10);
         } else {
           logger.warn(`TypeScript validation failed with code ${code}`);
-          logger.warn(`Errors: ${stderr.substring(0, 200)}`);
+          const combined = (stderr + "\n" + stdout).trim();
+          logger.warn(`Errors: ${combined.substring(0, 400)}`);
           resolve(4);
         }
       });
@@ -148,15 +220,31 @@ export class ValidatorAgent {
     });
   }
 
+  private static toPlaywrightFileFilter(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, "/");
+    const segments = normalized.split("/");
+    const escapedSegments = segments.map((s) =>
+      s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    );
+
+    // Playwright treats CLI args as RegExp filters; make this work on Windows regardless of path separator.
+    return `${escapedSegments.join("[\\\\/]")}$`;
+  }
+
   private static async validatePlaywrightSyntax(
     scriptPath: string
   ): Promise<boolean> {
     return new Promise((resolve) => {
-      const child = spawn("npx", ["playwright", "test", "--list", scriptPath], {
-        shell: true,
-        stdio: ["pipe", "pipe", "pipe"],
-        cwd: process.cwd()
-      });
+      const filter = this.toPlaywrightFileFilter(scriptPath);
+      const child = spawn(
+        "npx",
+        ["playwright", "test", "--config=playwright.config.ts", "--list", filter],
+        {
+          shell: true,
+          stdio: ["pipe", "pipe", "pipe"],
+          cwd: process.cwd()
+        }
+      );
 
       let stdout = "";
       let stderr = "";
@@ -186,8 +274,9 @@ export class ValidatorAgent {
           resolve(true);
         } else {
           logger.warn(`Playwright validation failed with code ${code}`);
-          if (stderr) {
-            logger.warn(`Playwright errors: ${stderr.substring(0, 200)}`);
+          const combined = (stderr + "\n" + stdout).trim();
+          if (combined) {
+            logger.warn(`Playwright errors: ${combined.substring(0, 400)}`);
           }
           resolve(false);
         }

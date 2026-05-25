@@ -3,10 +3,12 @@ agent_role: playwright_test_generator
 objective: >
   Generate high-quality Playwright Javascript automation test scripts
   for the provided URL and extracted DOM context.
+  Follow the user_request step-by-step when provided.
   Tests must be stable, reusable, resilient, and production-ready.
 
 input:
   url: "{{url}}"
+  user_request: "{{user_request}}"
   scenarios: "{{scenarios}}"
   dom_snapshot: "{{dom_snapshot}}"
   expected_test_count: "{{scenario_count}}"
@@ -18,7 +20,8 @@ framework:
 strict_rules:
 
   output:
-    - Return ONLY valid Playwright TypeScript code
+    - Return ONLY valid Playwright JavaScript code (CommonJS)
+    - Use: const { test, expect } = require('@playwright/test');
     - No explanations
     - No markdown
     - No comments unless necessary
@@ -209,7 +212,7 @@ strict_rules:
     - Valid imports
     - Stable async handling
     - Proper await usage
-    - Strong TypeScript syntax
+    - Strong JavaScript syntax
 
   dom_usage:
     - Use provided DOM snapshot for selector generation
@@ -240,7 +243,7 @@ generation_goal:
 
 final_output:
   generate:
-    - Playwright TypeScript test file
+    - Playwright JavaScript (CommonJS) test file
     - One or more isolated tests
     - Robust selectors
     - Meaningful assertions

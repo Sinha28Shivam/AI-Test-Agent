@@ -40,6 +40,7 @@ export class AIGeneratorAgent {
         if (promptTemplate && promptTemplate.input) {
           promptTemplate.input.url = data.url;
           promptTemplate.input.scenarios = data.scenarios;
+          promptTemplate.input.user_request = data.rawPrompt || "";
           promptTemplate.input.dom_snapshot = data.domSnapshot
             ? this.formatDOMForPrompt(data.domSnapshot)
             : "No DOM snapshot available";
@@ -67,7 +68,7 @@ export class AIGeneratorAgent {
         throw new Error(`Generator failed: ${response.error}`);
       }
 
-      const generatedCode = response.data.trim();
+      let generatedCode = response.data.trim();
 
       if (generatedCode.length === 0) {
         throw new Error("AI provider returned empty code");
@@ -76,8 +77,11 @@ export class AIGeneratorAgent {
       // Validate generated code
       this.validateGeneratedCode(generatedCode);
 
+      // Repo defaults to CommonJS for .js (no "type": "module"); normalize common ESM import form.
+      generatedCode = this.convertPlaywrightImportToCommonJS(generatedCode);
+
       // Save to file
-      const filePath = path.join("tests", "generated", "auth.spec.ts");
+      const filePath = path.join("tests", "generated", "auth.spec.js");
       logger.info(`Writing generated script to: ${filePath}`);
 
       FileManager.write(filePath, generatedCode);
@@ -136,7 +140,11 @@ ${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
     logger.info("Validating generated code structure...");
 
     const checks = [
-      { pattern: /import\s+{.*test/s, name: "imports" },
+      {
+        pattern:
+          /(import\s+\{[\s\S]*\}\s+from\s+['"]@playwright\/test['"]|require\s*\(\s*['"]@playwright\/test['"]\s*\))/s,
+        name: "imports"
+      },
       { pattern: /test\s*\(/s, name: "test cases" },
       { pattern: /page\.goto/s, name: "navigation" },
       { pattern: /expect\s*\(/s, name: "assertions" },
@@ -164,21 +172,29 @@ ${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
     }
   }
 
+  private static convertPlaywrightImportToCommonJS(code: string): string {
+    return code.replace(
+      /^\s*import\s+\{\s*test\s*,\s*expect\s*\}\s+from\s+['"]@playwright\/test['"]\s*;?\s*$/m,
+      "const { test, expect } = require('@playwright/test');"
+    );
+  }
+
   private static getFallbackPrompt(
     data: ScenarioResult,
     scenarioText: string,
     keywordsText: string,
     domContext: string
   ): string {
-    return `Generate a production-ready Playwright TypeScript test script with these requirements:
+    return `Generate a production-ready Playwright JavaScript (CommonJS) test script with these requirements:
 
 Target URL: ${data.url}
+User Request: ${data.rawPrompt || ""}
 Test Scenarios: ${scenarioText}
 Action Keywords: ${keywordsText}${domContext}
 
 Requirements:
 1. Use @playwright/test framework
-2. Include proper imports and test setup
+2. Use CommonJS import: const { test, expect } = require('@playwright/test');
 3. Add page.goto("${data.url}") at the start of each test
 4. Create one test per scenario
 5. Use the extracted elements and selectors provided above when available
@@ -190,7 +206,7 @@ Requirements:
 11. Add appropriate timeouts (30-60 seconds for page loads)
 12. Make tests independent and reusable
 13. Use async/await properly
-14. Return ONLY valid TypeScript code. No markdown, no comments, no explanations.`;
+14. Return ONLY valid JavaScript code. No markdown, no comments, no explanations.`;
   }
 }
 

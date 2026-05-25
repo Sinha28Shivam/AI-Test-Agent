@@ -4,6 +4,7 @@ import { DOMSnapshot } from "./dom-types";
 export type ScenarioResult = {
   url: string;
   scenarios: string[];
+  rawPrompt?: string;
   actionKeywords?: string[];
   domSnapshot?: DOMSnapshot;
 };
@@ -86,7 +87,8 @@ export class ScenarioAgent {
 
     const result: ScenarioResult = {
       url,
-      scenarios: scenarios.length > 0 ? scenarios : ["generic-test"]
+      scenarios: scenarios.length > 0 ? scenarios : ["generic-test"],
+      rawPrompt: prompt
     };
 
     if (actionKeywords.length > 0) {
