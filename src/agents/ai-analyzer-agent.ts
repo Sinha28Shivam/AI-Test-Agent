@@ -6,6 +6,7 @@
 import { logger } from "../utils/logger";
 import { AIConfig } from "../utils/ai-config";
 import { TestResult } from "./executor-agent";
+import { ScenarioStrategy } from "./scenario-strategy";
 
 export interface DetailedIssue {
   type: "timeout" | "selector-not-found" | "navigation" | "assertion" | "title-mismatch" | "flaky" | "network" | "invalid-code" | "other";
@@ -68,10 +69,18 @@ const RCA_PATTERNS = {
 
 export class AIAnalyzerAgent {
   /**
-   * Main analysis method using AI provider
+   * Main analysis method using AI provider.
+   * Strategies enrich the analysis with known failure causes per scenario type.
    */
-  static async analyze(testResult: TestResult): Promise<AnalysisResult> {
+  static async analyze(
+    testResult: TestResult,
+    strategies: ScenarioStrategy[] = []
+  ): Promise<AnalysisResult> {
     logger.info("AI Analyzer Agent is running...");
+
+    if (strategies.length > 0) {
+      logger.info(`  Scenario-aware analysis for: ${strategies.map(s => s.type).join(", ")}`);
+    }
 
     if (testResult.failed === 0) {
       logger.success("✓ No failures detected");
@@ -88,8 +97,8 @@ export class AIAnalyzerAgent {
     try {
       // Try AI analysis first
       logger.info(`Analyzing ${testResult.failed} test failure(s)...`);
-      const aiAnalysis = await this.getAIAnalysis(testResult);
-      
+      const aiAnalysis = await this.getAIAnalysis(testResult, strategies);
+
       if (aiAnalysis) {
         return aiAnalysis;
       }
@@ -99,20 +108,35 @@ export class AIAnalyzerAgent {
 
     // Fallback to heuristic analysis
     logger.info("Using heuristic RCA detection...");
-    return this.getHeuristicAnalysis(testResult);
+    return this.getHeuristicAnalysis(testResult, strategies);
   }
 
   /**
-   * Get analysis from AI provider
+   * Get analysis from AI provider, enriched with scenario-known failure causes.
    */
-  private static async getAIAnalysis(testResult: TestResult): Promise<AnalysisResult | null> {
+  private static async getAIAnalysis(
+    testResult: TestResult,
+    strategies: ScenarioStrategy[]
+  ): Promise<AnalysisResult | null> {
     try {
       const provider = AIConfig.getAnalyzerProvider();
       const failureDetails = this.extractFailureDetails(testResult);
 
+      const scenarioContext = strategies.length > 0
+        ? `\nScenario Context (known failure causes per scenario):\n` +
+          strategies
+            .map(
+              (s) =>
+                `[${s.type}]\n` +
+                `  Common causes: ${s.analysis.commonFailureCauses.join("; ")}\n` +
+                `  Fix suggestions: ${s.analysis.fixSuggestions.join("; ")}`
+            )
+            .join("\n")
+        : "";
+
       const prompt = `You are a Playwright test automation expert. Analyze these test failures and provide root cause analysis (RCA).
 
-${failureDetails}
+${failureDetails}${scenarioContext}
 
 Test Execution Metrics:
 - Total Tests: ${testResult.total}
@@ -181,9 +205,13 @@ Return JSON only (no markdown):
   }
 
   /**
-   * Heuristic RCA detection (fallback when AI is unavailable)
+   * Heuristic RCA detection (fallback when AI is unavailable).
+   * Uses scenario-strategy known failure causes when available.
    */
-  private static getHeuristicAnalysis(testResult: TestResult): AnalysisResult {
+  private static getHeuristicAnalysis(
+    testResult: TestResult,
+    strategies: ScenarioStrategy[] = []
+  ): AnalysisResult {
     logger.info("Running heuristic pattern matching...");
 
     const issues: DetailedIssue[] = [];
@@ -274,6 +302,30 @@ Return JSON only (no markdown):
     // Duration-based recommendations
     if (testResult.duration > 30000) {
       recommendations.add("Tests took longer than expected - consider parallelization");
+    }
+
+    // Inject scenario-specific fix suggestions if strategies are available
+    if (strategies.length > 0) {
+      logger.info("Applying scenario-specific fix suggestions...");
+      strategies.forEach((s) => {
+        s.analysis.fixSuggestions.forEach((fix) => recommendations.add(`[${s.type}] ${fix}`));
+      });
+
+      // If no issues were matched by generic patterns, add scenario known causes
+      if (issues.length === 0) {
+        strategies.forEach((s) => {
+          s.analysis.commonFailureCauses.forEach((cause) => {
+            issues.push({
+              type: "other",
+              description: `[${s.type}] Possible cause: ${cause}`,
+              severity: "warning",
+              affectedTests: testResult.tests
+                .filter((t) => t.status === "failed")
+                .map((t) => t.title),
+            });
+          });
+        });
+      }
     }
 
     return {

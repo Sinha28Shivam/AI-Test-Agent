@@ -34,5 +34,6 @@ export interface DOMSnapshot {
   elements: DOMElement[];
   statistics: DOMStatistics;
   hierarchy?: string;
+  strategyHints?: string[];  // context hints from active ScenarioStrategies
   extractionMethod: 'playwright' | 'http';
 }

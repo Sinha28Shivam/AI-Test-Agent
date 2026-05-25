@@ -1,12 +1,16 @@
 import { logger } from "../utils/logger";
 import { DOMSnapshot } from "./dom-types";
+import { ScenarioStrategy, getStrategiesForScenarios } from "./scenario-strategy";
 
 export type ScenarioResult = {
-  url: string;
+  url: string;        // primary test URL (last URL found in prompt)
+  allUrls: string[];  // all URLs found in prompt, in order
   scenarios: string[];
+  strategies: ScenarioStrategy[];
   rawPrompt?: string;
   actionKeywords?: string[];
   domSnapshot?: DOMSnapshot;
+  domSnapshots?: DOMSnapshot[];  // snapshots for ALL visited URLs
 };
 
 /**
@@ -70,9 +74,10 @@ export class ScenarioAgent {
   static parse(prompt: string): ScenarioResult {
     logger.info("Scenario Agent is running...");
     
-    // Extract URL
-    const urlMatch = prompt.match(/https?:\/\/[^\s]+/);
-    const url = urlMatch ? urlMatch[0] : "";
+    // Extract all URLs; use the last one as the primary test target
+    // (the final URL in the prompt is typically the most specific test destination)
+    const allUrls = [...prompt.matchAll(/https?:\/\/[^\s,'"]+/g)].map(m => m[0]);
+    const url = allUrls.length > 0 ? allUrls[allUrls.length - 1]! : "";
     
     // Extract scenarios using NLP
     const scenarios = this.extractScenarios(prompt);
@@ -81,13 +86,25 @@ export class ScenarioAgent {
     const lowerPrompt = prompt.toLowerCase();
     const actionKeywords = Object.keys(this.KEYWORD_MAP).filter(keyword => lowerPrompt.includes(keyword));
 
+    const finalScenarios = scenarios.length > 0 ? scenarios : ["generic-test"];
+    const strategies = getStrategiesForScenarios(finalScenarios);
+
     logger.success("✓ Scenario parsing completed");
     logger.info(`  URL: ${url}`);
-    logger.info(`  Scenarios: ${scenarios.join(", ")}`);
+    logger.info(`  Scenarios: ${finalScenarios.join(", ")}`);
+    logger.info(`  Strategies loaded: ${strategies.map(s => s.type).join(", ")}`);
+    strategies.forEach(s => logger.info(`    → [${s.type}] ${s.description}`));
+
+    if (allUrls.length > 1) {
+      logger.info(`  Multiple URLs found: ${allUrls.join(" → ")}`);
+      logger.info(`  Primary test target (last URL): ${url}`);
+    }
 
     const result: ScenarioResult = {
       url,
-      scenarios: scenarios.length > 0 ? scenarios : ["generic-test"],
+      allUrls,
+      scenarios: finalScenarios,
+      strategies,
       rawPrompt: prompt
     };
 
@@ -105,9 +122,6 @@ export class ScenarioAgent {
     const lowerPrompt = prompt.toLowerCase();
     const detectedScenarios = new Set<string>();
 
-    // Split prompt into words and phrases for matching
-    const words = lowerPrompt.split(/[\s\-_]+/);
-    
     // Check each keyword in our map
     for (const keyword of Object.keys(this.KEYWORD_MAP)) {
   if (lowerPrompt.includes(keyword)) {

@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { logger } from "../utils/logger";
 import { FileManager } from "../utils/file-manager";
+import { ScenarioStrategy } from "./scenario-strategy";
 import path from "path";
 
 export interface ValidationResult {
@@ -8,6 +9,7 @@ export interface ValidationResult {
   selectorScore: number;
   assertionScore: number;
   coverageScore: number;
+  scenarioComplianceScore: number;
   overallAccuracy: number;
   issues: string[];
 }
@@ -15,11 +17,15 @@ export interface ValidationResult {
 export class ValidatorAgent {
   static async validate(
     scriptPath: string,
-    scenarioCount: number
+    scenarioCount: number,
+    strategies: ScenarioStrategy[] = []
   ): Promise<ValidationResult> {
     logger.info("Validator Agent is running...");
     logger.info(`Validating script: ${scriptPath}`);
     logger.info(`Expected scenario count: ${scenarioCount}`);
+    if (strategies.length > 0) {
+      logger.info(`Scenario strategies to validate against: ${strategies.map(s => s.type).join(", ")}`);
+    }
 
     try {
       // Check if file exists
@@ -84,16 +90,32 @@ export class ValidatorAgent {
         );
       }
 
-      // Calculate overall accuracy
-      const overallAccuracy = Math.round(
-        (syntaxScore + selectorScore + assertionScore + coverageScore) / 4
+      // Step 6: Scenario compliance (scenario-based thinking check)
+      let scenarioComplianceScore = 10;
+      if (strategies.length > 0) {
+        logger.info("Analyzing scenario compliance...");
+        scenarioComplianceScore = this.analyzeScenarioCompliance(scriptContent, strategies, issues);
+      }
+
+      // Calculate overall accuracy — scenario compliance replaces a generic slot
+      const scoreComponents = [syntaxScore, selectorScore, assertionScore, coverageScore];
+      if (strategies.length > 0) scoreComponents.push(scenarioComplianceScore);
+      let overallAccuracy = Math.round(
+        scoreComponents.reduce((a, b) => a + b, 0) / scoreComponents.length
       );
+
+      // Syntax failure is a hard block — a file that won't parse must not run
+      if (syntaxScore < 10) {
+        overallAccuracy = Math.min(overallAccuracy, 5);
+        logger.warn("Syntax failure detected — capping overall accuracy to 5 to block execution");
+      }
 
       const result: ValidationResult = {
         syntaxScore,
         selectorScore,
         assertionScore,
         coverageScore,
+        scenarioComplianceScore,
         overallAccuracy,
         issues
       };
@@ -382,6 +404,49 @@ export class ValidatorAgent {
       `Assertion quality score: ${score}/10 (${meaningfulAssertionCount}/${assertionCount} meaningful)`
     );
     return score;
+  }
+
+  /**
+   * Check that the generated code satisfies the required patterns for every
+   * active scenario strategy. Each strategy contributes its own required patterns
+   * and an optional bonus if all are met.
+   */
+  private static analyzeScenarioCompliance(
+    scriptContent: string,
+    strategies: ScenarioStrategy[],
+    issues: string[]
+  ): number {
+    let totalPatterns = 0;
+    let matchedPatterns = 0;
+    let bonusPoints = 0;
+
+    for (const strategy of strategies) {
+      const strategyPatterns = strategy.validation.requiredPatterns;
+      const allMet = strategyPatterns.every(({ pattern, description }) => {
+        totalPatterns++;
+        const met = pattern.test(scriptContent);
+        if (met) {
+          matchedPatterns++;
+          logger.info(`  ✓ [${strategy.type}] ${description}`);
+        } else {
+          logger.warn(`  ✗ [${strategy.type}] Missing: ${description}`);
+          issues.push(`[${strategy.type}] Missing required code pattern: ${description}`);
+        }
+        return met;
+      });
+
+      if (allMet && strategy.validation.scoringBonus > 0) {
+        bonusPoints += strategy.validation.scoringBonus;
+        logger.success(`  ✓ [${strategy.type}] All scenario patterns met — +${strategy.validation.scoringBonus} bonus`);
+      }
+    }
+
+    if (totalPatterns === 0) return 10;
+
+    const baseScore = Math.round((matchedPatterns / totalPatterns) * 10);
+    const finalScore = Math.min(10, baseScore + bonusPoints);
+    logger.info(`Scenario compliance score: ${finalScore}/10 (${matchedPatterns}/${totalPatterns} patterns met)`);
+    return finalScore;
   }
 
   private static analyzeCoverage(
