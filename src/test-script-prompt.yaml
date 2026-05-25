@@ -25,6 +25,7 @@ strict_rules:
     - No explanations
     - No markdown
     - No comments unless necessary
+    - Attach Screenshot on every steps
     - Code must compile without syntax errors
 
   test_structure:
