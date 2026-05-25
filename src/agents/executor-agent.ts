@@ -309,47 +309,70 @@ export class ExecutorAgent {
   private static extractTestsFromResult(result: any, stderr: string = "", timestamp: string = ""): Array<any> {
     const tests: any[] = [];
 
+    // Top-level tests (some reporter modes)
     if (result.tests && Array.isArray(result.tests)) {
       result.tests.forEach((test: any) => {
-        const testEntry: any = {
-          title: test.title || "Unknown test",
-          status: test.status === "passed" ? "passed" : test.status === "failed" ? "failed" : "skipped",
-          duration: test.duration || 0
-        };
-        
-        if (test.error) {
-          const errorInfo = this.extractErrorInfo(test.error.message || test.error);
-          testEntry.error = errorInfo.message;
-          testEntry.errorType = errorInfo.type;
-        }
-        
-        tests.push(testEntry);
+        tests.push(this.parseTestNode(test, ""));
       });
     }
 
+    // Playwright JSON nests tests: suites[file].suites[describe].tests[test]
+    // Recurse to any depth so we never miss tests in nested describe blocks
     if (result.suites && Array.isArray(result.suites)) {
       result.suites.forEach((suite: any) => {
-        if (suite.tests && Array.isArray(suite.tests)) {
-          suite.tests.forEach((test: any) => {
-            const testEntry: any = {
-              title: `${suite.title || "Suite"} > ${test.title || "Test"}`,
-              status: test.ok ? "passed" : "failed",
-              duration: test.duration || 0
-            };
-            
-            if (test.error) {
-              const errorInfo = this.extractErrorInfo(test.error.message || test.error);
-              testEntry.error = errorInfo.message;
-              testEntry.errorType = errorInfo.type;
-            }
-            
-            tests.push(testEntry);
-          });
-        }
+        tests.push(...this.extractTestsFromSuite(suite, ""));
       });
     }
 
     return tests;
+  }
+
+  private static extractTestsFromSuite(suite: any, parentTitle: string): Array<any> {
+    const tests: any[] = [];
+    const suiteTitle = parentTitle
+      ? `${parentTitle} > ${suite.title || ""}`
+      : (suite.title || "");
+
+    if (suite.tests && Array.isArray(suite.tests)) {
+      suite.tests.forEach((test: any) => {
+        tests.push(this.parseTestNode(test, suiteTitle));
+      });
+    }
+
+    if (suite.suites && Array.isArray(suite.suites)) {
+      suite.suites.forEach((nested: any) => {
+        tests.push(...this.extractTestsFromSuite(nested, suiteTitle));
+      });
+    }
+
+    return tests;
+  }
+
+  private static parseTestNode(test: any, suiteTitle: string): any {
+    const fullTitle = suiteTitle
+      ? `${suiteTitle} > ${test.title || "Unknown"}`
+      : (test.title || "Unknown");
+
+    // Playwright JSON reporter: result details are in test.results[0]
+    const result = (test.results && Array.isArray(test.results) && test.results[0]) || {};
+    const isOk = test.ok === true || result.status === "passed";
+
+    const testEntry: any = {
+      title: fullTitle,
+      status: isOk ? "passed" : result.status === "skipped" ? "skipped" : "failed",
+      duration: result.duration ?? test.duration ?? 0,
+    };
+
+    // Real error is in results[0].errors[0], not test.error
+    const firstError = result.errors?.[0];
+    if (firstError) {
+      const rawMsg = firstError.message || firstError.value || JSON.stringify(firstError);
+      const errorInfo = this.extractErrorInfo(rawMsg);
+      testEntry.error = errorInfo.message;
+      testEntry.errorType = errorInfo.type;
+    }
+
+    return testEntry;
   }
 
   private static toPlaywrightFileFilter(filePath: string): string {

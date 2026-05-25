@@ -6,6 +6,7 @@
 import { chromium, Browser, Page } from "@playwright/test";
 import { logger } from "../utils/logger";
 import { DOMElement, DOMSnapshot, DOMStatistics } from "./dom-types";
+import { ScenarioStrategy } from "./scenario-strategy";
 import path from "path";
 import crypto from "crypto";
 import fs from "fs/promises";
@@ -13,53 +14,17 @@ import fs from "fs/promises";
 export class DOMExtractorAgent {
   private static readonly SNAPSHOTS_DIR = path.join("reports", "dom-snapshots");
 
-  static async extract(url: string): Promise<DOMSnapshot> {
+  static async extract(
+    url: string,
+    strategies: ScenarioStrategy[] = []
+  ): Promise<DOMSnapshot> {
     logger.info("DOM Extractor Agent is running...");
     logger.info(`Extracting DOM from: ${url}`);
 
     let browser: Browser | null = null;
     try {
       browser = await chromium.launch();
-      const page = await browser.newPage();
-
-      // Navigate to the URL using load to avoid networkidle timeouts on slow tracking scripts
-      await page.goto(url, { waitUntil: "load", timeout: 30000 });
-
-      // Attempt networkidle but ignore timeouts so the process does not crash
-      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {
-        logger.info("Timeout waiting for network idle, proceeding with extraction...");
-      });
-
-      // Wait for initial render
-      await page.waitForLoadState("domcontentloaded");
-
-      // Extract DOM elements
-      const elements = await this.extractElements(page);
-
-      // Calculate statistics
-      const statistics = this.calculateStatistics(elements);
-
-      // Create snapshot
-      const timestamp = new Date().toISOString();
-      const snapshot: DOMSnapshot = {
-        url,
-        timestamp: new Date().toISOString().substring(0, 10),
-        extractedAt: timestamp,
-        totalElements: elements.length,
-        elements,
-        statistics,
-        extractionMethod: "playwright"
-      };
-
-      // Save snapshot to file
-      await this.saveSnapshot(snapshot);
-
-      logger.success(`✓ DOM Extraction completed. Found ${elements.length} elements`);
-      logger.info(`  - Buttons: ${statistics.buttons}`);
-      logger.info(`  - Inputs: ${statistics.inputs}`);
-      logger.info(`  - Links: ${statistics.links}`);
-      logger.info(`  - Interactive: ${statistics.interactiveElements}`);
-
+      const snapshot = await this.extractFromPage(browser, url, strategies);
       return snapshot;
     } catch (error) {
       logger.error(`DOM Extraction failed: ${error}`);
@@ -71,10 +36,104 @@ export class DOMExtractorAgent {
     }
   }
 
+  static async extractAll(
+    urls: string[],
+    strategies: ScenarioStrategy[] = []
+  ): Promise<DOMSnapshot[]> {
+    if (urls.length === 0) return [];
+
+    logger.info("DOM Extractor Agent is running (multi-URL mode)...");
+    logger.info(`Extracting DOM from ${urls.length} URL(s): ${urls.join(" → ")}`);
+
+    let browser: Browser | null = null;
+    const snapshots: DOMSnapshot[] = [];
+
+    try {
+      browser = await chromium.launch();
+
+      for (const url of urls) {
+        try {
+          const snapshot = await this.extractFromPage(browser, url, strategies);
+          snapshots.push(snapshot);
+        } catch (error) {
+          logger.warn(`⚠ DOM extraction failed for ${url} (skipping): ${error}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`DOM Extractor (multi-URL) failed to launch browser: ${error}`);
+      throw new Error(`DOM Extraction failed: ${error}`);
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+
+    logger.success(`✓ DOM Extraction completed for ${snapshots.length}/${urls.length} URL(s)`);
+    return snapshots;
+  }
+
+  private static async extractFromPage(
+    browser: Browser,
+    url: string,
+    strategies: ScenarioStrategy[]
+  ): Promise<DOMSnapshot> {
+    logger.info(`  Extracting DOM from: ${url}`);
+
+    if (strategies.length > 0) {
+      logger.info(
+        `  Scenario strategies active: ${strategies.map((s) => s.type).join(", ")}`
+      );
+      strategies.forEach((s) =>
+        logger.info(`  [${s.type}] DOM hint: ${s.dom.contextHint}`)
+      );
+    }
+
+    const page = await browser.newPage();
+    try {
+      // Navigate using load to avoid networkidle timeouts on slow tracking scripts
+      await page.goto(url, { waitUntil: "load", timeout: 30000 });
+
+      // Attempt networkidle but ignore timeouts
+      await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {
+        logger.info("Timeout waiting for network idle, proceeding with extraction...");
+      });
+
+      await page.waitForLoadState("domcontentloaded");
+
+      const elements = await this.extractElements(page);
+      const orderedElements = this.applyStrategyPriority(elements, strategies);
+      const strategyHints = strategies.map((s) => `[${s.type}] ${s.dom.contextHint}`);
+      const statistics = this.calculateStatistics(orderedElements);
+
+      const timestamp = new Date().toISOString();
+      const snapshot: DOMSnapshot = {
+        url,
+        timestamp: new Date().toISOString().substring(0, 10),
+        extractedAt: timestamp,
+        totalElements: orderedElements.length,
+        elements: orderedElements,
+        statistics,
+        ...(strategyHints.length > 0 && { strategyHints }),
+        extractionMethod: "playwright"
+      };
+
+      await this.saveSnapshotAsCSV(snapshot);
+
+      logger.success(`  ✓ DOM Extraction done for ${url}. Found ${elements.length} elements`);
+      logger.info(`    - Buttons: ${statistics.buttons}`);
+      logger.info(`    - Inputs: ${statistics.inputs}`);
+      logger.info(`    - Links: ${statistics.links}`);
+      logger.info(`    - Interactive: ${statistics.interactiveElements}`);
+
+      return snapshot;
+    } finally {
+      await page.close();
+    }
+  }
+
   private static async extractElements(page: Page): Promise<DOMElement[]> {
     const elements: DOMElement[] = [];
 
-    // Extract interactive elements
     const interactiveSelectors = [
       { selector: "button", type: "button" as const },
       { selector: "a", type: "link" as const },
@@ -93,7 +152,7 @@ export class DOMExtractorAgent {
         let visibleCount = 0;
 
         for (const el of elementsOfType) {
-          if (visibleCount >= 30) break; // Limit to 30 visible elements per type to prevent bloat
+          if (visibleCount >= 30) break;
 
           try {
             const isVisible = await el.isVisible().catch(() => false);
@@ -107,38 +166,32 @@ export class DOMExtractorAgent {
             const placeholder = await el.getAttribute("placeholder").catch(() => null);
             const href = await el.getAttribute("href").catch(() => null);
 
-            // 1. Text check: Allow empty text if it is an input-like or form element, or has attributes
             const hasText = text && text.trim().length > 0;
             const hasPlaceholder = !!placeholder;
             const hasAriaLabel = !!ariaLabel;
             const isInputOrForm = ["input", "textarea", "select", "form"].includes(tagName);
 
             if (!hasText && !hasPlaceholder && !hasAriaLabel && !isInputOrForm && !id) {
-              continue; // Skip elements that have no content or identifiers
+              continue;
             }
 
-            // Generate smart CSS selector inside the browser context
             const generatedSelector = await el.evaluate((e) => {
-              // 1. Check for data-testid or other testing attributes
               for (const attr of ["data-testid", "data-test", "data-cy"]) {
                 const val = e.getAttribute(attr);
                 if (val) return `[${attr}="${val}"]`;
               }
 
-              // 2. Check for unique ID
               if (e.id) {
                 return `#${CSS.escape(e.id)}`;
               }
 
               const tagNameLower = e.tagName.toLowerCase();
 
-              // 3. Check for Name attribute (very stable on input elements)
               const nameAttr = e.getAttribute("name");
               if (nameAttr && ["input", "textarea", "select", "form"].includes(tagNameLower)) {
                 return `${tagNameLower}[name="${nameAttr}"]`;
               }
 
-              // 4. Check for href (for links if relatively short)
               if (tagNameLower === "a") {
                 const hrefAttr = e.getAttribute("href");
                 if (
@@ -152,7 +205,6 @@ export class DOMExtractorAgent {
                 }
               }
 
-              // 5. Fallback: Build unique hierarchical path with nth-of-type to avoid strict mode violations
               const pathParts: string[] = [];
               let currentElement: Element | null = e;
 
@@ -162,9 +214,8 @@ export class DOMExtractorAgent {
                 if (currentElement.id) {
                   currentSelector = `#${CSS.escape(currentElement.id)}`;
                   pathParts.unshift(currentSelector);
-                  break; // Unique ID found, we can stop climbing
+                  break;
                 } else {
-                  // Find nth-of-type index among siblings of the same tag
                   let sibling = currentElement;
                   let nth = 1;
                   while (sibling.previousElementSibling) {
@@ -192,20 +243,18 @@ export class DOMExtractorAgent {
                 pathParts.unshift(currentSelector);
                 currentElement = currentElement.parentElement;
 
-                if (pathParts.length > 5) break; // Limit depth to prevent extremely long paths
+                if (pathParts.length > 5) break;
               }
 
               return pathParts.join(" > ");
             }).catch(() => selector);
 
-            // Normalize text field to give AI generator best descriptor
-            const normalizedText = (text || "").trim().substring(0, 100) || 
-                                   placeholder || 
-                                   ariaLabel || 
-                                   id || 
+            const normalizedText = (text || "").trim().substring(0, 100) ||
+                                   placeholder ||
+                                   ariaLabel ||
+                                   id ||
                                    "";
 
-            // Push processed element conforming to exactOptionalPropertyTypes
             const elementToPush: DOMElement = {
               selector: generatedSelector,
               type,
@@ -232,19 +281,59 @@ export class DOMExtractorAgent {
 
             elements.push(elementToPush);
             visibleCount++;
-          } catch (error) {
+          } catch (_) {
             // Skip elements that can't be processed
           }
         }
-      } catch (error) {
+      } catch (_) {
         // Skip selector if it errors
       }
     }
 
-    // Remove duplicates based on selector
     const uniqueElements = Array.from(new Map(elements.map((e) => [e.selector, e])).values());
+    return uniqueElements.slice(0, 100);
+  }
 
-    return uniqueElements.slice(0, 100); // Limit to 100 elements total
+  private static applyStrategyPriority(
+    elements: DOMElement[],
+    strategies: ScenarioStrategy[]
+  ): DOMElement[] {
+    if (strategies.length === 0) return elements;
+
+    const prioritySelectors = strategies.flatMap((s) => s.dom.prioritySelectors);
+
+    const isPriority = (el: DOMElement): boolean => {
+      return prioritySelectors.some((sel) => {
+        const lower = sel.toLowerCase();
+        if (lower.includes('type="password"') && el.tagName === "input") {
+          return el.selector.includes('password') || (el.placeholder || "").toLowerCase().includes("password");
+        }
+        if (lower.includes('type="email"') && el.tagName === "input") {
+          return el.selector.includes('email') || (el.placeholder || "").toLowerCase().includes("email");
+        }
+        if (lower.includes('type="search"') && el.tagName === "input") {
+          return el.selector.includes('search') || (el.placeholder || "").toLowerCase().includes("search");
+        }
+        if (lower.startsWith("nav a") || lower.startsWith('[role="navigation"]')) {
+          return el.type === "link";
+        }
+        if (lower.includes("form") && el.type === "form") return true;
+        if (lower === "h1" && el.tagName === "h1") return true;
+        if (lower === "main" && el.tagName === "main") return true;
+        return false;
+      });
+    };
+
+    const prioritized = elements.filter(isPriority);
+    const rest = elements.filter((el) => !isPriority(el));
+
+    if (prioritized.length > 0) {
+      logger.info(
+        `  Strategy prioritized ${prioritized.length} element(s) to top of DOM snapshot`
+      );
+    }
+
+    return [...prioritized, ...rest];
   }
 
   private static calculateStatistics(elements: DOMElement[]): DOMStatistics {
@@ -260,26 +349,45 @@ export class DOMExtractorAgent {
     };
   }
 
-  private static async saveSnapshot(snapshot: DOMSnapshot): Promise<void> {
+  private static csvEscape(val: string | null | undefined): string {
+    const str = val == null ? "" : String(val);
+    if (str.includes('"') || str.includes(',') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  private static async saveSnapshotAsCSV(snapshot: DOMSnapshot): Promise<void> {
     try {
-      // Create snapshots directory
       await fs.mkdir(this.SNAPSHOTS_DIR, { recursive: true });
 
-      // Generate filename with timestamp and URL hash
       const urlHash = crypto
         .createHash("md5")
         .update(snapshot.url)
         .digest("hex")
         .substring(0, 8);
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19);
-      const filename = `${timestamp}_${urlHash}.json`;
-
+      const filename = `${timestamp}_${urlHash}.csv`;
       const filepath = path.join(this.SNAPSHOTS_DIR, filename);
 
-      // Write snapshot to file
-      await fs.writeFile(filepath, JSON.stringify(snapshot, null, 2), "utf8");
+      const header = "url,selector,type,text,tagName,id,ariaLabel,placeholder,href,isInteractive";
+      const rows = snapshot.elements.map((el) =>
+        [
+          this.csvEscape(snapshot.url),
+          this.csvEscape(el.selector),
+          this.csvEscape(el.type),
+          this.csvEscape(el.text),
+          this.csvEscape(el.tagName),
+          this.csvEscape(el.id),
+          this.csvEscape(el.ariaLabel),
+          this.csvEscape(el.placeholder),
+          this.csvEscape(el.href),
+          this.csvEscape(String(el.isInteractive))
+        ].join(",")
+      );
 
-      logger.info(`✓ DOM snapshot saved to: ${filepath}`);
+      await fs.writeFile(filepath, [header, ...rows].join("\n"), "utf8");
+      logger.info(`✓ DOM snapshot saved to: ${filepath} (${snapshot.elements.length} rows)`);
     } catch (error) {
       logger.warn(`⚠ Failed to save DOM snapshot: ${error}`);
     }

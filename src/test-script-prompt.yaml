@@ -25,7 +25,8 @@ strict_rules:
     - No explanations
     - No markdown
     - No comments unless necessary
-    - Attach Screenshot on every steps
+    - Attach Screenshot on every steps and screenshots should be in ascending order (e.g., step1.png, step2.png)
+    - Screenshot path should be reports/screenshots/
     - Code must compile without syntax errors
 
   test_structure:

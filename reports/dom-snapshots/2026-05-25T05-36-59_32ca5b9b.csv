@@ -1,0 +1,7 @@
+url,selector,type,text,tagName,id,ariaLabel,placeholder,href,isInteractive
+https://demoqa.com,"a[href=""/elements""]",link,Elements,a,,,,/elements,true
+https://demoqa.com,"a[href=""/forms""]",link,Forms,a,,,,/forms,true
+https://demoqa.com,"a[href=""/alertsWindows""]",link,"Alerts, Frame & Windows",a,,,,/alertsWindows,true
+https://demoqa.com,"a[href=""/widgets""]",link,Widgets,a,,,,/widgets,true
+https://demoqa.com,"a[href=""/interaction""]",link,Interactions,a,,,,/interaction,true
+https://demoqa.com,"a[href=""/books""]",link,Book Store Application,a,,,,/books,true

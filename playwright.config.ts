@@ -11,10 +11,13 @@ export default defineConfig({
     ['list'],
     ['json']
   ],
+  timeout: 60000,
   use: {
     headless: true,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
+    actionTimeout: 15000,
+    navigationTimeout: 30000,
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
