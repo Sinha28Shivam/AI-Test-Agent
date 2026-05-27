@@ -174,8 +174,11 @@ export class AIGeneratorAgent {
         "NEVER use page.waitForLoadState('networkidle') or page.waitForLoadState('load') as ad networks and trackers will hang indefinitely.",
         "Verify asynchronous elements render using: await locator.waitFor({ state: 'visible', timeout: 15000 }) before performing actions.",
         "Locate dynamic elements using getByRole() or getByText() with exact: false or regex rules.",
-        "Ensure search inputs are visible and focused before typing. Always locate the search input inside the personalization dialog/panel using page.getByRole('searchbox', { name: /search/i }) or page.getByPlaceholder(/search/i) instead of using or reusing the main/global page search input.",
-        "To wait for a dialog/modal/panel, prefer locating it by its role and accessible name (e.g. getByRole('dialog', { name: /personalize/i })) instead of page.locator('[role=\"dialog\"]').first(), as there may be hidden dialog elements in the DOM.",
+        "To open the personalization panel on MSN, click the button using page.locator('#myInterests').first() or page.getByRole('button', { name: /personalize/i }).",
+        "The personalization panel on MSN is a custom web component (shadow DOM) and does NOT have role='dialog'. Do not wait for role='dialog' or role='menu' containers.",
+        "To target the search input inside the personalization store/panel, use page.locator('input#discover-search-box').first() — do not use just #discover-search-box as it causes strict mode violations.",
+        "To click follow/unfollow buttons inside the personalization store/panel, use page.locator('[aria-label=\"Follow <publisher_name>\"]') or page.locator('[aria-label*=\"Follow\"]'). Do not search for text '+' because it resides inside shadow roots.",
+        "To close the personalization panel on MSN, click the close button using page.locator('#close-button, fluent-button#close-button').first()",
         "NEVER use locator.count() or locator.isVisible() inside conditional 'if' statements immediately after actions to check if a dynamic element (like a modal/dialog) has appeared. These methods do not auto-wait and will return false/0 before the element has loaded. Instead, directly target the element and wait for it using await locator.waitFor({ state: 'visible' })."
       );
     }

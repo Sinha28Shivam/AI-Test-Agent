@@ -113,5 +113,5 @@ keys/
 
 # Keep these directories but ignore their contents
 !reports/.gitkeep
-!tests/generated/.gitkeep
+
 !.temp/.gitkeep

@@ -7,6 +7,7 @@ import { ExecutorAgent } from "./agents/executor-agent";
 import { AIAnalyzerAgent } from "./agents/ai-analyzer-agent";
 import { SummaryAgent } from "./agents/summary-agent";
 import { ValidatorAgent, ValidationResult } from "./agents/validator-agent";
+import { GHAutoPushAgent } from "./github-agent/gh-auto-push";
 import path from "path";
 
 export interface OrchestrationResult {
@@ -58,8 +59,13 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
     let scriptPath = "";
     let testResult: any = null;
     let errorFeedbackContext = "";
+    let validation: any = null;
+    let healingAttempts = 0;
 
     for (let genAttempt = 1; genAttempt <= MAX_GEN_ATTEMPTS; genAttempt++) {
+      if (genAttempt > 1) {
+        healingAttempts++;
+      }
       logger.info(`\nPipeline Attempt ${genAttempt}/${MAX_GEN_ATTEMPTS}`);
 
       try {
@@ -78,7 +84,7 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
       }
 
       // Run static validations (syntax, imports, basic pattern checks)
-      const validation = await ValidatorAgent.validate(
+      validation = await ValidatorAgent.validate(
         scriptPath,
         scenarioData.scenarios.length,
         scenarioData.strategies
@@ -151,6 +157,29 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
     const finalReport = SummaryAgent.generateReport(analysis, testResult, rawReportPath);
     SummaryAgent.saveReport(finalReport, finalReportPath);
     SummaryAgent.printReport(finalReport);
+
+    logger.info("\n" + "=".repeat(60));
+    logger.info("STEP 8: Auto Push to GitHub");
+    logger.info("=".repeat(60));
+    try {
+      await GHAutoPushAgent.run({
+        testStatus: testResult && testResult.failed === 0 ? "passed" : "failed",
+        passRate: testResult ? Math.round((testResult.passed / testResult.total) * 100) : 0,
+        testsPassed: testResult ? testResult.passed : 0,
+        testsTotal: testResult ? testResult.total : 0,
+        testsFailed: testResult ? testResult.failed : 0,
+        validationScore: validation ? validation.overallAccuracy : 0,
+        healingAttempts,
+        durationSeconds: testResult ? Math.round(testResult.duration / 1000) : 0,
+        isFixable: analysis ? analysis.isFixable : false,
+        rootCauses: analysis && analysis.rootCauses ? analysis.rootCauses : [],
+        issueTypes: analysis && analysis.issues ? analysis.issues.map((i: any) => i.type) : [],
+        originalPrompt: prompt,
+        scriptPath
+      });
+    } catch (pushError: any) {
+      logger.error(`Error during github auto-push execution: ${pushError.message}`);
+    }
 
     logger.info("\n" + "=".repeat(60));
     
