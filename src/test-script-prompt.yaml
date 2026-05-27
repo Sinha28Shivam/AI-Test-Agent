@@ -12,6 +12,7 @@ input:
   scenarios: "{{scenarios}}"
   dom_snapshot: "{{dom_snapshot}}"
   expected_test_count: "{{scenario_count}}"
+  previous_execution_failure: "{{previous_execution_failure}}"
 
 framework:
   language: JavaScript
@@ -19,234 +20,115 @@ framework:
 
 strict_rules:
 
+  self_healing:
+    - "If previous_execution_failure is provided, analyze the error log and the line that failed. Correct the element selector or wait logic to fix the issue."
+
   output:
     - Return ONLY valid Playwright JavaScript code (CommonJS)
     - Use: const { test, expect } = require('@playwright/test');
-    - No explanations
-    - No markdown
-    - No comments unless necessary
-    - Attach Screenshot on every steps and screenshots should be in ascending order (e.g., step1.png, step2.png)
-    - Screenshot path should be reports/screenshots/
+    - No explanations, markdown, or unnecessary comments
+    - Attach screenshot on key steps (ascending order: step1.png, step2.png)
+    - Screenshot path: reports/screenshots/
     - Code must compile without syntax errors
 
   test_structure:
-    - Use test.describe()
-    - Use test.beforeEach() where reusable setup exists
-    - Use independent test cases
-    - Do not create dependent tests
-    - Keep tests isolated
+    - Use test.describe() and independent test cases
+    - Use test.beforeEach() for reusable setup
+    - Keep tests isolated and non-dependent
+    - One test per scenario
 
   navigation:
-    - "Always use page.goto(url)"
-    - "Prefer waitUntil: 'domcontentloaded'"
-    - "Avoid waitUntil: 'networkidle' on dynamic websites"
-    - Handle lazy-loaded content
-    - Handle redirects
+    - "Always use page.goto(url) with waitUntil: 'domcontentloaded'."
+    - "NEVER use page.waitForLoadState('networkidle') or page.waitForLoadState('load') as dynamic ads or tracking scripts will cause permanent execution timeouts."
+    - "Handle lazy-loaded content using locator.waitFor({ state: 'visible', timeout: 15000 }) on target elements."
 
-  selector_strategy_priority:
-    priority_order:
-      - data-testid
-      - data-test
-      - aria-label
-      - getByRole
-      - name
-      - id
-      - placeholder
-      - label text
-      - href
-      - stable text
-      - semantic tags
-      - css selector
-      - xpath (last resort only)
+  selector_strategy:
+    - "Priority: getByRole -> getByLabel -> getByPlaceholder -> getByText -> data-testid -> id"
+    - "Prefer semantic, accessibility-friendly, and stable selectors (getByRole, getByLabel, etc.) rather than brittle CSS or XPath selectors."
+    - "Avoid nth-child, deep nested DOM chains, dynamic classes, and xpath."
+    - "Use the provided DOM snapshot elements for matching selectors and iframe contexts."
 
-  selector_rules:
-    - Prefer semantic selectors
-    - Prefer accessibility-friendly selectors
-    - Prefer stable selectors
-    - Avoid nth-child
-    - Avoid nth-of-type
-    - Avoid deep DOM chains
-    - Avoid dynamic class names
-    - Avoid framework-generated IDs
-    - Avoid inline style selectors
-    - Do not use brittle hierarchical selectors
+  dynamic_ui:
+    - "Handle SPA behavior, lazy loading, delayed rendering, modals, overlays."
+    - "Wait for element visibility using locator.waitFor({ state: 'visible' }) before clicking or filling."
+    - "Verify UI state changes (like button text or attribute values) instead of relying solely on toast notifications."
 
-  dynamic_ui_handling:
-    - Handle SPA behavior
-    - Handle lazy loading
-    - Handle delayed rendering
-    - Handle dynamic modals
-    - Handle hidden elements
-    - Handle loading spinners
-    - Handle async content
-    - Handle overlays
-    - Handle re-rendering components
-    - Wait for stable visible state before interaction
+  assertions:
+    - Use native Playwright expect()
+    - Verify page visibility, text, URL changes, form existence, enabled state
+    - Meaningful assertions only - no duplicates
 
-  assertion_rules:
-    - Prefer native Playwright expect()
-    - Use meaningful assertions
-    - Verify page visibility
-    - Verify text visibility
-    - Verify URL change when needed
-    - Verify forms exist before interaction
-    - Verify element enabled state
-    - Verify successful interaction
-    - Avoid unnecessary hard assertions
-
-  interaction_rules:
+  interaction:
     click:
-      - Ensure visible before click
-      - Ensure enabled before click
-      - Retry safe interactions
-
+      - Ensure visible and enabled before clicking
+      - Use retry-safe interactions
     input:
-      - Clear field before fill
-      - Validate field exists
-      - Prefer placeholder or label selectors
-
+      - Clear field before fill, validate field exists
     forms:
-      - Validate form visible
-      - Validate submit action
-      - Check validation errors if present
-
+      - Validate form visible, submit action, check validation errors
     navigation:
-      - Validate destination page
-      - Validate URL or heading
+      - Validate destination page, URL, or heading
+
+  spa_guidance:
+    - "For personalization/follow flows: verify UI state change, not just toast"
+    - "For follow/unfollow: check button state or list content changed"
+    - Use locator.first() when multiple elements match
+    - "For searchable dropdowns (e.g., React-Select widgets like #state or #city): First click the container locator to expand it, wait for the corresponding input locator (e.g., #react-select-3-input) to become visible, fill the text option value, and then explicitly press 'Enter' via keyboard to select it."
+    - "DO NOT use page.waitForLoadState('networkidle') between interactions. Rely on Playwright auto-waiting or target locator waits instead."
 
   supported_scenarios:
-
-    page_load:
-      - Verify page opens successfully
-      - Verify title or key heading visible
-      - Verify main content loads
-
-    visibility_check:
-      - Validate critical UI elements visible
-      - Validate page render
-
-    authentication:
-      - Detect login form
-      - Fill email/username
-      - Fill password
-      - Submit
-      - Validate login result
-
-    registration:
-      - Detect signup form
-      - Fill required fields
-      - Submit
-      - Validate result
-
-    password_recovery:
-      - Detect forgot password flow
-      - Validate recovery form
-
     form_submission:
       - Validate form render
-      - Fill form
-      - Submit
-      - Validate success or errors
-
-    navigation:
-      - Click links/buttons
-      - Validate route changes
-
+      - Fill form fields (handle selects/checkboxes)
+      - Submit and validate success or errors
+    interaction:
+      - Click interactive elements in sequence
+      - Validate response after each click
     search_functionality:
       - Detect search input
-      - Fill query
-      - Submit
-      - Validate result area
-
-    interaction:
-      - Click interactive elements
-      - Validate response
-
-    validation:
-      - Validate content
-      - Validate state changes
-      - Validate page behavior
-
-    modal_interaction:
-      - Detect modal
-      - Open modal
-      - Validate visible
-      - Close modal
-
-    error_handling:
-      - Detect error banners
-      - Detect alerts
-      - Validate messages
-
-    scroll_behavior:
-      - Scroll page
-      - Validate lazy-loaded content
-
-    generic_test:
-      - Validate page accessible
-      - Validate main UI loaded
-      - Validate at least one key interaction
+      - Fill and submit query
+      - Validate results appear
+    authentication:
+      - Detect login form
+      - Fill email/username and password
+      - Submit and validate result
+    page_load:
+      - Verify page opens and title/heading visible
+    navigation:
+      - Click links/buttons and validate route changes
 
   flaky_protection:
-    - Avoid arbitrary waitForTimeout unless fallback
-    - Prefer waitForSelector
-    - Prefer locator.waitFor()
-    - Retry transient interactions
+    - Avoid arbitrary waitForTimeout - use waitForSelector or locator.waitFor()
     - Validate visibility before action
-    - Avoid unstable selectors
-    - Handle detached elements
-
-  error_handling:
-    - Fail gracefully
-    - Use Playwright built-in assertions
-    - Do not overuse manual throw Error
-    - Capture actionable failure points
+    - Avoid unstable selectors and detached elements
+    - Use explicit waits for async updates
 
   browser_behavior:
-    - Use default Playwright browser context
+    - Use default Playwright context
     - Assume Chromium
     - Headless compatible
 
   code_quality:
-    - Reusable locators
-    - Readable naming
-    - Minimal duplication
-    - Valid imports
-    - Stable async handling
-    - Proper await usage
+    - Reusable locators, readable naming, minimal duplication
+    - Valid imports, stable async handling, proper await usage
     - Strong JavaScript syntax
 
-  dom_usage:
-    - Use provided DOM snapshot for selector generation
-    - Prefer extracted stable attributes
-    - Ignore dynamic CSS classes
-    - Ignore unstable wrappers
-    - Use semantic DOM when possible
-
   forbidden_patterns:
-    - page.waitForTimeout(5000)
-    - div > div > div > a
-    - nth-child selectors
-    - deeply nested CSS
-    - random sleeps
-    - brittle xpath
-    - duplicate assertions
-    - unsafe force click
-    - manual if throw patterns unless unavoidable
+    - page.waitForTimeout(N) - use locator waits instead
+    - page.waitForLoadState('networkidle') - causes infinite stalls on ad-heavy sites
+    - nth-child, deep nested selectors, random sleeps
+    - Duplicate assertions, unsafe force clicks
+    - "Using locator.count() or locator.isVisible() in conditional checks immediately after page events/clicks. Playwright count() and isVisible() do not auto-wait, causing false negatives. Use locator.waitFor({ state: 'visible' }) or expect().toBeVisible() instead."
 
 generation_goal:
-  - Produce accurate selectors
+  - Produce accurate, stable selectors
   - Minimize flaky tests
   - Maximize execution success
-  - Cover all requested scenarios
-  - Keep tests maintainable
-  - Work on dynamic and static websites
-  - Prefer real-world resilient automation
+  - Cover requested scenario
+  - Keep tests maintainable and resilient
 
 final_output:
   generate:
     - Playwright JavaScript (CommonJS) test file
-    - One or more isolated tests
-    - Robust selectors
-    - Meaningful assertions
-    - Executable code
+    - Isolated, robust tests with meaningful assertions
+    - Executable code ready to run

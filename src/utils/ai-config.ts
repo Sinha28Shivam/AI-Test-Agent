@@ -25,7 +25,7 @@ export class AIConfig {
         enabled: true,
         retryAttempts: 3,
         retryDelayMs: 1000,
-        timeoutMs: 60000
+        timeoutMs: 180000  // Increased from 60000ms (1 min) to 180000ms (3 min) for complex prompt handling
       });
 
       this.analyzerProvider = new CopilotProvider({

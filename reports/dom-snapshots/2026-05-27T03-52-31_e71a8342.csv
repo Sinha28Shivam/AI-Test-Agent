@@ -1,0 +1,32 @@
+url,selector,type,text,tagName,id,ariaLabel,placeholder,href,isInteractive
+https://www.msn.com/en-in,a,link,See more,a,,,,https://www.msn.com/en-in/video?ocid=hpmsn,true
+https://www.msn.com/en-in,#dismissButton,button,Close,a,dismissButton,DismissBanner,,#,true
+https://www.msn.com/en-in,#banner-button1,button,Go now,a,banner-button1,ActionButton1,,https://www.microsoft.com/edge/launch/msn-1,true
+https://www.msn.com/en-in,button,button,Feedback,button,,Feedback,,,true
+https://www.msn.com/en-in,#srchfrm,form,srchfrm,form,srchfrm,,,,true
+https://www.msn.com/en-in,#q,input,Search the web,input,q,Enter your search term,Search the web,,true
+https://www.msn.com/en-in,#mectrl_main_trigger,button,Sign in to your accountSign in,button,mectrl_main_trigger,Sign in to your account,,,true
+https://www.msn.com/en-in,fluent-flipper,button,,fluent-flipper,,,,,true
+https://www.msn.com/en-in,#myFeed,link,Discover,a,myFeed,,,https://www.msn.com/en-in,true
+https://www.msn.com/en-in,#news,link,News,a,news,,,https://www.msn.com/en-in/channel/topic/Top%20stories/tp-Y_0b495ad3-9beb-45f8-9214-c8e95aa2468f,true
+https://www.msn.com/en-in,#sports,link,Sports,a,sports,,,https://www.msn.com/en-in/sports,true
+https://www.msn.com/en-in,#play,link,Play,a,play,,,https://www.msn.com/en-in/play?cgfrom=cg_home_pivot,true
+https://www.msn.com/en-in,#finance,link,Money,a,finance,,,https://www.msn.com/en-in/money,true
+https://www.msn.com/en-in,#weather,link,Weather,a,weather,,,https://www.msn.com/en-in/weather,true
+https://www.msn.com/en-in,#watch,link,Watch,a,watch,,,https://www.msn.com/en-in/video,true
+https://www.msn.com/en-in,#shopping,link,Shopping,a,shopping,,,https://www.bing.com/shop?entrypoint=msn&adunitId=378983&propertyId=316966&FORM=NVBSHP,true
+https://www.msn.com/en-in,#heading,link,"Sachin Tendulkar’s unexpected walk down flight aisle triggers fan frenzy, Bollywood actor captures m",a,heading,"Sachin Tendulkar’s unexpected walk down flight aisle triggers fan frenzy, Bollywood actor captures moment, The Indian Express",,https://www.msn.com/en-in/sports/cricket/sachin-tendulkar-s-unexpected-walk-down-flight-aisle-triggers-fan-frenzy-bollywood-actor-captures-moment/ar-AA246yxQ,true
+https://www.msn.com/en-in,#comments-count-button,link,1,a,comments-count-button,View comments 1 Comment,,https://www.msn.com/en-in/sports/cricket/sachin-tendulkar-s-unexpected-walk-down-flight-aisle-triggers-fan-frenzy-bollywood-actor-captures-moment/ar-AA246yxQ#comments,true
+https://www.msn.com/en-in,div,button,,div,,,,,true
+https://www.msn.com/en-in,span,button,Next,span,,Next,,,true
+https://www.msn.com/en-in,#title,link,ICC,a,title,,,https://www.msn.com/en-in/sports/cricket/cricket-internationals?ocid=hpmsn&cvid=6a166a76547d4909b84dbc9fea225b78,true
+https://www.msn.com/en-in,#AA2446mJ,link,"Moneycontrol  47
+Kejriwal questions why PM Modi isn’t buying cheap Russian, Iranian oil; BJP answers",a,AA2446mJ,,,https://www.msn.com/en-in/money/topstories/kejriwal-questions-why-pm-modi-isn-t-buying-cheap-russian-iranian-oil-bjp-answers/ar-AA2446mJ,true
+https://www.msn.com/en-in,#AA245bOQ,link,"The Times of India  3
+Arrived in Rs 2.5 crore car to steal Rs 45 flowerpot, says Yogi Adityanath; ca",a,AA245bOQ,,,https://www.msn.com/en-in/autos/news/arrived-in-rs-2-5-crore-car-to-steal-rs-45-flowerpot-says-yogi-adityanath-calls-it-new-model-of-theft/ar-AA245bOQ,true
+https://www.msn.com/en-in,#AA247c8Z,link,"The Economic Times  3
+Pakistan urges India to respect Indus Water Treaty",a,AA247c8Z,,,https://www.msn.com/en-in/news/india/pakistan-urges-india-to-respect-indus-water-treaty/ar-AA247c8Z,true
+https://www.msn.com/en-in,#BingVideoCarouselIcon,link,BingVideoCarouselIcon,a,BingVideoCarouselIcon,,,https://www.msn.com/en-in/video?ocid=hpmsn,true
+https://www.msn.com/en-in,#BingVideoCarouselTitle,link,Recommended videos,a,BingVideoCarouselTitle,,,https://www.msn.com/en-in/video?ocid=hpmsn,true
+https://www.msn.com/en-in,cs-flipper,button,next,cs-flipper,,next,,,true
+https://www.msn.com/en-in,#BingVideoCarouselSeeMoreHeader,link,See more,a,BingVideoCarouselSeeMoreHeader,,,https://www.msn.com/en-in/video?ocid=hpmsn,true

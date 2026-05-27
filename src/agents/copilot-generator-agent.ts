@@ -9,7 +9,7 @@ import fs from "fs";
 import yaml from "js-yaml";
 
 export class AIGeneratorAgent {
-  static async generate(data: ScenarioResult): Promise<string> {
+  static async generate(data: ScenarioResult, errorContext?: string): Promise<string> {
     logger.info("AI Generator Agent is running...");
     logger.info(`Generating tests for: ${data.url}`);
     logger.info(`Scenarios: ${data.scenarios.join(", ")}`);
@@ -57,11 +57,23 @@ export class AIGeneratorAgent {
           if (data.allUrls.length > 1) {
             promptTemplate.input.all_urls = data.allUrls;
           }
+          if (errorContext) {
+            promptTemplate.input.previous_execution_failure = errorContext;
+          }
         }
 
         // Inject scenario-strategy thinking block into the template
         if (data.strategies?.length > 0) {
           promptTemplate.scenario_thinking = this.buildScenarioThinkingBlock(data.strategies);
+        }
+
+        // Inject platform-specific hints for known dynamic sites
+        const platformHints = this.detectPlatformHints(data.url, data.rawPrompt || "");
+        if (platformHints && promptTemplate.strict_rules) {
+          if (!promptTemplate.strict_rules.platform_hints) {
+            promptTemplate.strict_rules.platform_hints = [];
+          }
+          promptTemplate.strict_rules.platform_hints.push(...platformHints);
         }
 
         // Dump back to YAML string
@@ -149,6 +161,28 @@ export class AIGeneratorAgent {
     }));
   }
 
+  /**
+   * Detect platform-specific hints for known dynamic sites (Corrected to avoid timeouts)
+   */
+  private static detectPlatformHints(url: string, prompt: string): string[] | null {
+    const hints: string[] = [];
+
+    // Dynamic apps / SPAs
+    if (url.includes('msn.com') || prompt.toLowerCase().includes('personali') || prompt.toLowerCase().includes('dynamic')) {
+      hints.push(
+        "Use waitUntil: 'domcontentloaded' on page.goto().",
+        "NEVER use page.waitForLoadState('networkidle') or page.waitForLoadState('load') as ad networks and trackers will hang indefinitely.",
+        "Verify asynchronous elements render using: await locator.waitFor({ state: 'visible', timeout: 15000 }) before performing actions.",
+        "Locate dynamic elements using getByRole() or getByText() with exact: false or regex rules.",
+        "Ensure search inputs are visible and focused before typing. Always locate the search input inside the personalization dialog/panel using page.getByRole('searchbox', { name: /search/i }) or page.getByPlaceholder(/search/i) instead of using or reusing the main/global page search input.",
+        "To wait for a dialog/modal/panel, prefer locating it by its role and accessible name (e.g. getByRole('dialog', { name: /personalize/i })) instead of page.locator('[role=\"dialog\"]').first(), as there may be hidden dialog elements in the DOM.",
+        "NEVER use locator.count() or locator.isVisible() inside conditional 'if' statements immediately after actions to check if a dynamic element (like a modal/dialog) has appeared. These methods do not auto-wait and will return false/0 before the element has loaded. Instead, directly target the element and wait for it using await locator.waitFor({ state: 'visible' })."
+      );
+    }
+
+    return hints.length > 0 ? hints : null;
+  }
+
   private static buildDOMContext(data: ScenarioResult): string {
     if (data.domSnapshots && data.domSnapshots.length > 0) {
       return "\n\nExtracted Page Elements (all visited URLs):\n" +
@@ -166,48 +200,36 @@ export class AIGeneratorAgent {
    * Format DOM snapshot for inclusion in AI prompt
    */
   private static formatDOMForPrompt(snapshot: DOMSnapshot): string {
-    const topButtons = snapshot.elements
-      .filter((e) => e.type === "button")
-      .slice(0, 4);
-    const topLinks = snapshot.elements
-      .filter((e) => e.type === "link")
-      .slice(0, 4);
-    const topInputs = snapshot.elements
-      .filter((e) => e.type === "input")
-      .slice(0, 3);
+    let format = `\nPage Statistics: 
+    - Total Elements: ${snapshot.totalElements}
+    - Buttons: ${snapshot.statistics.buttons}
+    - Links: ${snapshot.statistics.links}
+    - Inputs: ${snapshot.statistics.inputs}
+    - Interactive Elements: ${snapshot.statistics.interactiveElements}
+    `;
 
-    let format = `\nPage Statistics:
-- Total Elements: ${snapshot.totalElements}
-- Buttons: ${snapshot.statistics.buttons}
-- Links: ${snapshot.statistics.links}
-- Inputs: ${snapshot.statistics.inputs}
-- Interactive Elements: ${snapshot.statistics.interactiveElements}
-`;
-
-    if (snapshot.strategyHints && snapshot.strategyHints.length > 0) {
-      format += `\nScenario Context (what to focus on):\n`;
-      snapshot.strategyHints.forEach((h) => (format += `- ${h}\n`));
+    if (snapshot.strategyHints && snapshot.strategyHints.length > 0){
+      format += `\nScenario context (what to focus on):\n`;
+      snapshot.strategyHints.forEach((h) => (format += ` - ${h}\n`));
     }
 
-    format += `\nKey Elements (use these selectors in tests):\n`;
-
-    if (topButtons.length > 0) {
-      format += `\nButtons:
-${topButtons.map((b) => `- "${b.text}" [selector: ${b.selector}]`).join("\n")}`;
-    }
-
-    if (topInputs.length > 0) {
-      format += `\n\nInputs:
-${topInputs.map((i) => `- ${i.tagName} [selector: ${i.selector}]${i.placeholder ? ` placeholder: "${i.placeholder}"` : ""}`).join("\n")}`;
-    }
-
-    if (topLinks.length > 0) {
-      format += `\n\nLinks:
-${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
-    }
-
+    format += `\nInteractive Elements found on page (use these selectors and metadata): \n`;
+    snapshot.elements.forEach((el) => {
+      const parts: string[] = [];
+      parts.push(`selector: ${el.selector}`);
+      parts.push(`tag: ${el.tagName}`);
+      if (el.text) parts.push(`text: "${el.text.replace(/\n/g, ' ')}"`)
+      if (el.placeholder) parts.push(`placeholder: "${el.placeholder}"`)
+      if (el.ariaLabel) parts.push(`aria-label: "${el.ariaLabel}"`);
+      if (el.id) parts.push(`id: "${el.id}"`);
+      if (el.iframeContext) parts.push(`iframeContext: "${el.iframeContext}"`);
+      format += ` - [${el.type.toUpperCase()}] ${parts.join(" | ")}\n`;
+    })
     return format;
   }
+
+
+
   private static validateGeneratedCode(code: string): void {
     logger.info("Validating generated code structure...");
 
@@ -250,12 +272,21 @@ ${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
    * Finds the first line that looks like the beginning of a JS/TS source file.
    */
   private static sanitizeCode(code: string): string {
-    // Remove markdown code fences
-    code = code
+    // First, try to extract code inside the first code fence if it exists
+    const codeFenceMatch = code.match(/```(?:javascript|js|typescript|ts)?\s*\n([\s\S]*?)\n```/);
+    let sanitized = code;
+    if (codeFenceMatch && codeFenceMatch[1]) {
+      sanitized = codeFenceMatch[1].trim();
+      logger.info("Sanitized code: extracted JavaScript code block using code fences");
+      return sanitized;
+    }
+
+    // Fallback: Remove markdown code fences manually
+    sanitized = sanitized
       .replace(/^```(?:javascript|js|typescript|ts)?\s*\n/gm, "")
       .replace(/^```\s*$/gm, "");
 
-    const lines = code.split("\n");
+    const lines = sanitized.split("\n");
     const codeStartPatterns = [
       /^const\s+\{/,         // const { test, expect } = require(...)
       /^const\s+\w/,         // const foo = ...
@@ -269,19 +300,64 @@ ${topLinks.map((l) => `- "${l.text}" [selector: ${l.selector}]`).join("\n")}`;
       /^describe\s*\(/,
     ];
 
+    let startIndex = -1;
     for (let i = 0; i < lines.length; i++) {
       const trimmed = (lines[i] ?? "").trim();
       if (codeStartPatterns.some((p) => p.test(trimmed))) {
-        if (i > 0) {
-          logger.info(`Sanitized code: removed ${i} non-code leading line(s)`);
-        }
-        return lines.slice(i).join("\n").trim();
+        startIndex = i;
+        break;
       }
     }
 
-    // No recognizable JS found — return empty so the caller throws
-    logger.warn("sanitizeCode: no JavaScript code found in AI response");
-    return "";
+    if (startIndex === -1) {
+      logger.warn("sanitizeCode: no JavaScript code start pattern found in AI response");
+      return "";
+    }
+
+    // Filter out trailing lines that look like markdown lists, headers, or explanations
+    let endIndex = lines.length - 1;
+    const trailingMarkdownPatterns = [
+      /^\s*\*\*/,          // **bold text**
+      /^\s*-\s+/,          // - list item
+      /^\s*\*\s+/,         // * list item
+      /^\s*\d+\.\s+/,      // 1. list item
+      /^\s*#/,             // # header
+      /^\s*Key features/i,
+      /^\s*Key improvements/i,
+      /^\s*Note:/i,
+    ];
+
+    while (endIndex > startIndex) {
+      const line = lines[endIndex];
+      if (line === undefined) {
+        endIndex--;
+        continue;
+      }
+      const trimmed = line.trim();
+      if (trimmed === "") {
+        endIndex--;
+        continue;
+      }
+      if (trailingMarkdownPatterns.some((p) => p.test(trimmed))) {
+        endIndex--;
+        continue;
+      }
+      // Stop if the line ends with a closing brace, parenthesis, semicolon, or a comment
+      if (trimmed.endsWith("}") || trimmed.endsWith("};") || trimmed.endsWith(")") || trimmed.endsWith(");") || trimmed.startsWith("//") || trimmed.startsWith("/*")) {
+        break;
+      }
+      if (/^[A-Za-z\s]+:/.test(trimmed) || /^[A-Za-z\s]+$/.test(trimmed)) {
+        endIndex--;
+        continue;
+      }
+      break;
+    }
+
+    if (startIndex > 0 || endIndex < lines.length - 1) {
+      logger.info(`Sanitized code: kept lines ${startIndex + 1} to ${endIndex + 1} of ${lines.length}`);
+    }
+
+    return lines.slice(startIndex, endIndex + 1).join("\n").trim();
   }
 
   private static convertPlaywrightImportToCommonJS(code: string): string {

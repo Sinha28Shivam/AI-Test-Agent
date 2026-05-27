@@ -13,6 +13,7 @@ export interface DOMElement {
   ariaLabel?: string;
   placeholder?: string;
   href?: string;
+  iframeContext?: string | null;
 }
 
 export interface DOMStatistics {

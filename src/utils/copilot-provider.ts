@@ -90,8 +90,10 @@ export class CopilotProvider implements AIProvider {
     const startTime = Date.now();
     const maxAttempts = this.config.retryAttempts || (operation === "generate" ? 3 : 2);
     let lastError: string = "";
+    let attemptsUsed = 0;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attemptsUsed = attempt;
       try {
         logger.info(`[${this.name}] ${operation} attempt ${attempt}/${maxAttempts}...`);
 
@@ -108,6 +110,11 @@ export class CopilotProvider implements AIProvider {
 
         lastError = result.error || "Unknown error";
 
+        if (this.isAuthenticationError(lastError)) {
+          logger.error(`[${this.name}] Authentication failed. Log in with Copilot or set COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN.`);
+          break;
+        }
+
         if (attempt < maxAttempts) {
           const delay = (this.config.retryDelayMs || 1000) * attempt;
           logger.warn(`⚠ Attempt ${attempt} failed: ${lastError}. Retrying in ${delay}ms...`);
@@ -115,6 +122,11 @@ export class CopilotProvider implements AIProvider {
         }
       } catch (error) {
         lastError = String(error);
+
+        if (this.isAuthenticationError(lastError)) {
+          logger.error(`[${this.name}] Authentication failed. Log in with Copilot or set COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN.`);
+          break;
+        }
 
         if (attempt < maxAttempts) {
           const delay = (this.config.retryDelayMs || 1000) * attempt;
@@ -127,10 +139,14 @@ export class CopilotProvider implements AIProvider {
     const duration = Date.now() - startTime;
     return {
       success: false,
-      error: `${operation} failed after ${maxAttempts} attempts: ${lastError}`,
+      error: `${operation} failed after ${attemptsUsed || maxAttempts} attempt(s): ${lastError}`,
       provider: this.name,
       duration
     };
+  }
+
+  private isAuthenticationError(error: string): boolean {
+    return /No authentication information found|COPILOT_GITHUB_TOKEN|GH_TOKEN|GITHUB_TOKEN|gh auth login/i.test(error);
   }
 
   /**

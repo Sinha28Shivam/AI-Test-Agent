@@ -117,26 +117,63 @@ export class ScenarioAgent {
 
   /**
    * Extract scenarios from natural language prompt using keyword matching
+   * Priority-based: return only top scenario to reduce complexity
    */
   private static extractScenarios(prompt: string): string[] {
     const lowerPrompt = prompt.toLowerCase();
-    const detectedScenarios = new Set<string>();
+    const detectedScenarios = new Map<string, number>(); // scenario -> priority
+    
+    // Priority map: higher number = higher priority
+    const scenarioPriority: Record<string, number> = {
+      "form-submission": 100,   // Primary: form filling
+      "interaction": 80,        // Secondary: button clicks
+      "search-functionality": 60, // Tertiary: search
+      "authentication": 90,
+      "navigation": 70,
+      "validation": 50,
+      "page-load": 40,
+      "visibility-check": 40,
+      "scroll-behavior": 30,
+      "modal-interaction": 30,
+      "error-handling": 25,
+      "sign-out": 20,
+      "password-recovery": 20,
+      "registration": 90,
+      "generic-test": 10,
+      "message-handling": 15
+    };
 
     // Check each keyword in our map
     for (const keyword of Object.keys(this.KEYWORD_MAP)) {
-  if (lowerPrompt.includes(keyword)) {
-    const scenario = this.KEYWORD_MAP[keyword];
+      if (lowerPrompt.includes(keyword)) {
+        const scenario = this.KEYWORD_MAP[keyword];
 
-    if (scenario) {
-      detectedScenarios.add(scenario);
-      logger.info(
-        `✓ Detected keyword: "${keyword}" → scenario: "${scenario}"`
-      );
+        if (scenario) {
+          const priority = scenarioPriority[scenario] || 0;
+          if (!detectedScenarios.has(scenario) || detectedScenarios.get(scenario)! < priority) {
+            detectedScenarios.set(scenario, priority);
+          }
+          logger.info(
+            `✓ Detected keyword: "${keyword}" → scenario: "${scenario}"`
+          );
+        }
+      }
     }
-  }
-}
+
+    // Return only the TOP priority scenario to reduce complexity and timeout issues
+    // This significantly reduces the prompt size and AI processing time
+    if (detectedScenarios.size > 0) {
+      const sorted = Array.from(detectedScenarios.entries())
+        .sort((a, b) => b[1] - a[1]);
+      
+      const [topScenario, topPriority] = sorted[0]!;
+      logger.info(`ℹ Priority-based scenario selection: using top scenario "${topScenario}" (priority: ${topPriority})`);
+      logger.info(`ℹ Skipping ${detectedScenarios.size - 1} other scenarios to reduce AI processing time`);
+      
+      return [topScenario];
+    }
 
     // Return unique scenarios, sorted alphabetically for consistency
-    return Array.from(detectedScenarios).sort();
+    return Array.from(detectedScenarios.keys()).sort();
   }
 }

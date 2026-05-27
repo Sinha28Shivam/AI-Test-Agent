@@ -3,7 +3,7 @@
  * Extracts DOM elements from target website before test generation
  */
 
-import { chromium, Browser, Page } from "@playwright/test";
+import { chromium, Browser, Page, Frame } from "@playwright/test";
 import { logger } from "../utils/logger";
 import { DOMElement, DOMSnapshot, DOMStatistics } from "./dom-types";
 import { ScenarioStrategy } from "./scenario-strategy";
@@ -131,167 +131,154 @@ export class DOMExtractorAgent {
     }
   }
 
-  private static async extractElements(page: Page): Promise<DOMElement[]> {
-    const elements: DOMElement[] = [];
+  private static async extractElements(page: Page | Frame): Promise<DOMElement[]> {
+    try {
+      const rawElements = await page.evaluate(() => {
+        const elementsList: any[] = [];
 
-    const interactiveSelectors = [
-      { selector: "button", type: "button" as const },
-      { selector: "a", type: "link" as const },
-      { selector: "input", type: "input" as const },
-      { selector: "textarea", type: "input" as const },
-      { selector: "select", type: "input" as const },
-      { selector: "form", type: "form" as const },
-      { selector: "[onclick]", type: "other" as const },
-      { selector: "[role='button']", type: "button" as const },
-      { selector: "[role='link']", type: "link" as const }
-    ];
+        // Recursive tree crawler function
+        function crawlNode(node: Node, currentIframeSelector: string | null = null) {
+          if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
 
-    for (const { selector, type } of interactiveSelectors) {
-      try {
-        const elementsOfType = await page.locator(selector).all();
-        let visibleCount = 0;
+          const el = node as Element;
+          const tagName = el.tagName.toLowerCase();
 
-        for (const el of elementsOfType) {
-          if (visibleCount >= 30) break;
+          // 1. Identify interactive or valuable structural layout elements
+          const hasOnclick = el.hasAttribute("onclick");
+          const role = el.getAttribute("role");
+          const isInteractiveTag = [
+            "button", "a", "input", "textarea", "select", "form", 
+            "iframe", "h1", "h2", "h3", "main", "header", "nav"
+          ].includes(tagName);
 
-          try {
-            const isVisible = await el.isVisible().catch(() => false);
-            if (!isVisible) continue;
+          const isInteractiveRole = role && ["button", "link", "searchbox", "dialog", "alert"].includes(role);
 
-            const tagName = await el.evaluate((e) => e.tagName.toLowerCase());
-            const text = await el.textContent().catch(() => "");
-            const id = await el.getAttribute("id").catch(() => null);
-            const classes = (await el.getAttribute("class").catch(() => "")) || "";
-            const ariaLabel = await el.getAttribute("aria-label").catch(() => null);
-            const placeholder = await el.getAttribute("placeholder").catch(() => null);
-            const href = await el.getAttribute("href").catch(() => null);
+          if (isInteractiveTag || isInteractiveRole || hasOnclick) {
+            // Check operational visibility safely in client scope
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = rect.width > 0 && rect.height > 0 && 
+                              style.display !== "none" && style.visibility !== "hidden";
 
-            const hasText = text && text.trim().length > 0;
-            const hasPlaceholder = !!placeholder;
-            const hasAriaLabel = !!ariaLabel;
-            const isInputOrForm = ["input", "textarea", "select", "form"].includes(tagName);
-
-            if (!hasText && !hasPlaceholder && !hasAriaLabel && !isInputOrForm && !id) {
-              continue;
-            }
-
-            const generatedSelector = await el.evaluate((e) => {
+            if (isVisible) {
+              // Generate robust selector strategies natively
+              let generatedSelector = "";
+              
+              // Priority 1: Data Test Attributes
               for (const attr of ["data-testid", "data-test", "data-cy"]) {
-                const val = e.getAttribute(attr);
-                if (val) return `[${attr}="${val}"]`;
-              }
-
-              if (e.id) {
-                return `#${CSS.escape(e.id)}`;
-              }
-
-              const tagNameLower = e.tagName.toLowerCase();
-
-              const nameAttr = e.getAttribute("name");
-              if (nameAttr && ["input", "textarea", "select", "form"].includes(tagNameLower)) {
-                return `${tagNameLower}[name="${nameAttr}"]`;
-              }
-
-              if (tagNameLower === "a") {
-                const hrefAttr = e.getAttribute("href");
-                if (
-                  hrefAttr &&
-                  hrefAttr.length < 50 &&
-                  !hrefAttr.startsWith("http") &&
-                  !hrefAttr.startsWith("//") &&
-                  !hrefAttr.startsWith("javascript:")
-                ) {
-                  return `a[href="${hrefAttr}"]`;
-                }
-              }
-
-              const pathParts: string[] = [];
-              let currentElement: Element | null = e;
-
-              while (currentElement && currentElement.nodeType === 1) {
-                let currentSelector = currentElement.tagName.toLowerCase();
-
-                if (currentElement.id) {
-                  currentSelector = `#${CSS.escape(currentElement.id)}`;
-                  pathParts.unshift(currentSelector);
+                const val = el.getAttribute(attr);
+                if (val) {
+                  generatedSelector = `[${attr}="${val}"]`;
                   break;
-                } else {
-                  let sibling = currentElement;
-                  let nth = 1;
-                  while (sibling.previousElementSibling) {
-                    sibling = sibling.previousElementSibling;
-                    if (sibling.tagName === currentElement.tagName) {
-                      nth++;
-                    }
-                  }
-
-                  let hasSiblings = false;
-                  let next = currentElement;
-                  while (next.nextElementSibling) {
-                    next = next.nextElementSibling;
-                    if (next.tagName === currentElement.tagName) {
-                      hasSiblings = true;
-                      break;
-                    }
-                  }
-
-                  if (nth > 1 || hasSiblings) {
-                    currentSelector += `:nth-of-type(${nth})`;
-                  }
                 }
-
-                pathParts.unshift(currentSelector);
-                currentElement = currentElement.parentElement;
-
-                if (pathParts.length > 5) break;
               }
 
-              return pathParts.join(" > ");
-            }).catch(() => selector);
+              // Priority 2: ID Attributes
+              if (!generatedSelector && el.id) {
+                generatedSelector = `#${CSS.escape(el.id)}`;
+              }
 
-            const normalizedText = (text || "").trim().substring(0, 100) ||
-                                   placeholder ||
-                                   ariaLabel ||
-                                   id ||
-                                   "";
+              // Priority 3: Component Names / Fallback Pathing
+              if (!generatedSelector) {
+                const nameAttr = el.getAttribute("name");
+                if (nameAttr && ["input", "textarea", "select", "form"].includes(tagName)) {
+                  generatedSelector = `${tagName}[name="${nameAttr}"]`;
+                } else {
+                  generatedSelector = tagName; // Base strategy fallback
+                }
+              }
 
-            const elementToPush: DOMElement = {
-              selector: generatedSelector,
-              type,
-              text: normalizedText,
-              tagName,
-              isInteractive: true
-            };
+              // Map standard element properties
+              const text = (el.textContent || "").trim().substring(0, 100);
+              const placeholder = el.getAttribute("placeholder") || null;
+              const ariaLabel = el.getAttribute("aria-label") || null;
+              const href = el.getAttribute("href") || null;
+              const id = el.id || null;
+              const classes = el.className && typeof el.className === "string" ? el.className.split(" ").filter(c => c) : [];
 
-            if (classes) {
-              elementToPush.classes = typeof classes === "string" ? classes.split(" ").filter((c) => c) : [];
-            }
-            if (id) {
-              elementToPush.id = id;
-            }
-            if (ariaLabel) {
-              elementToPush.ariaLabel = ariaLabel;
-            }
-            if (placeholder) {
-              elementToPush.placeholder = placeholder;
-            }
-            if (href) {
-              elementToPush.href = href;
-            }
+              // Categorize operational typing
+              let calculatedType: any = "other";
+              if (["button"].includes(tagName) || role === "button") calculatedType = "button";
+              else if (["a"].includes(tagName) || role === "link") calculatedType = "link";
+              else if (["input", "textarea", "select"].includes(tagName)) calculatedType = "input";
+              else if (["form"].includes(tagName)) calculatedType = "form";
+              else if (["h1", "h2", "h3"].includes(tagName)) calculatedType = "header";
 
-            elements.push(elementToPush);
-            visibleCount++;
-          } catch (_) {
-            // Skip elements that can't be processed
+              elementsList.push({
+                selector: generatedSelector,
+                type: calculatedType,
+                text: text || placeholder || ariaLabel || id || "",
+                tagName,
+                isInteractive: true,
+                id,
+                classes,
+                ariaLabel,
+                placeholder,
+                href,
+                // Meta attributes for frame-aware matching
+                iframeContext: currentIframeSelector
+              });
+            }
+          }
+
+          // 2. PIERCE OPEN SHADOW DOM (Open roots)
+          if (el.shadowRoot) {
+            const shadowChildren = el.shadowRoot.childNodes;
+            for (let i = 0; i < shadowChildren.length; i++) {
+              const child = shadowChildren[i];
+              if (child) {
+                crawlNode(child, currentIframeSelector);
+              }
+            }
+          }
+
+          // 3. RECURSIVELY WALK STANDARD LIGHT DOM CHILDREN
+          const children = el.childNodes;
+          for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child) {
+              crawlNode(child, currentIframeSelector);
+            }
           }
         }
-      } catch (_) {
-        // Skip selector if it errors
-      }
-    }
 
-    const uniqueElements = Array.from(new Map(elements.map((e) => [e.selector, e])).values());
-    return uniqueElements.slice(0, 100);
+        // Start processing from document trunk body element
+        crawlNode(document.body);
+        return elementsList;
+      });
+
+      // 4. PIERCE INTERIOR IFRAME CONTENT LAYERS OUTSIDE BROWSER ISOLATION CONTEXT
+      const finalElements: DOMElement[] = [...rawElements];
+      const childFrames = ('childFrames' in page) ? (page as Frame).childFrames() : (page as Page).mainFrame().childFrames();
+
+      for (const frame of childFrames) {
+        try {
+          const frameElementHandle = await frame.frameElement();
+          if (frameElementHandle) {
+            const frameSrc = (await frameElementHandle.getAttribute("src")) || "iframe";
+            // Recursively crawl elements inside the active sub-frame context
+            const frameElements = await this.extractElements(frame);
+            
+            // Map them out tracking frame identity lineage
+            frameElements.forEach(fe => {
+              fe.selector = `iframe[src="${frameSrc}"] >>> ${fe.selector}`;
+              finalElements.push(fe);
+            });
+          }
+        } catch (e) {
+          // Suppress restricted cross-origin iframe security errors safely
+        }
+      }
+
+      // De-duplicate targets cleanly via built selectors and return full array
+      const uniqueElements = Array.from(new Map(finalElements.map((e) => [e.selector, e])).values());
+      
+      // REMOVED `.slice(0, 100)` and counter limits to capture EVERYTHING
+      return uniqueElements;
+
+    } catch (error) {
+      return [];
+    }
   }
 
   private static applyStrategyPriority(

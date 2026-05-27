@@ -51,68 +51,92 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
     }
 
     logger.info("\n" + "=".repeat(60));
-    logger.info("STEP 3 & 4: Generate → Validate (with regeneration loop)");
+    logger.info("STEP 3, 4 & 5: Generate → Validate → Execute Loop (Self-Healing)");
     logger.info("=".repeat(60));
 
     const MAX_GEN_ATTEMPTS = 3;
     let scriptPath = "";
-    let validation: Pick<ValidationResult, "overallAccuracy" | "issues"> = {
-      overallAccuracy: 0,
-      issues: []
-    };
+    let testResult: any = null;
+    let errorFeedbackContext = "";
 
     for (let genAttempt = 1; genAttempt <= MAX_GEN_ATTEMPTS; genAttempt++) {
-      logger.info(`\nGeneration attempt ${genAttempt}/${MAX_GEN_ATTEMPTS}`);
+      logger.info(`\nPipeline Attempt ${genAttempt}/${MAX_GEN_ATTEMPTS}`);
 
       try {
-        scriptPath = await AIGeneratorAgent.generate(scenarioData);
+        // Generate test script, passing error feedback if a previous attempt failed
+        scriptPath = await AIGeneratorAgent.generate(scenarioData, errorFeedbackContext || undefined);
         logger.success(`Generated file: ${scriptPath}`);
       } catch (genError) {
         logger.warn(`Generation attempt ${genAttempt} failed: ${genError}`);
+        if (isAuthenticationError(genError)) {
+          throw genError;
+        }
         if (genAttempt === MAX_GEN_ATTEMPTS) {
           throw new Error(`All ${MAX_GEN_ATTEMPTS} generation attempts failed`);
         }
         continue;
       }
 
-      validation = await ValidatorAgent.validate(
+      // Run static validations (syntax, imports, basic pattern checks)
+      const validation = await ValidatorAgent.validate(
         scriptPath,
         scenarioData.scenarios.length,
         scenarioData.strategies
       );
 
-      logger.info(`Validation Accuracy: ${validation.overallAccuracy}/10`);
-
-      if (validation.issues.length > 0) {
-        logger.warn(`Validation Issues: ${validation.issues.join(" | ")}`);
+      logger.info(`Validation Accuracy Score: ${validation.overallAccuracy}/10`);
+      if (validation.overallAccuracy < 7) {
+        if (genAttempt < MAX_GEN_ATTEMPTS) {
+          logger.warn(`Quality too low (${validation.overallAccuracy}/10) — correcting and regenerating...`);
+          errorFeedbackContext = `Static validation failed. Issues: ${validation.issues.join("; ")}`;
+          continue;
+        } else {
+          throw new Error(
+            `Generated script quality too low after ${MAX_GEN_ATTEMPTS} attempts: ${validation.overallAccuracy}/10`
+          );
+        }
       }
 
-      if (validation.overallAccuracy >= 7) {
-        logger.success(`✓ Quality gate passed (${validation.overallAccuracy}/10)`);
-        break;
-      }
+      // Execute tests
+      logger.info(`Executing tests for validation check (Attempt ${genAttempt})...`);
+      try {
+        testResult = await ExecutorAgent.execute(scriptPath);
+        
+        if (testResult.failed === 0) {
+          logger.success(`✓ Tests passed successfully on attempt ${genAttempt}`);
+          break;
+        }
 
-      if (genAttempt < MAX_GEN_ATTEMPTS) {
-        logger.warn(
-          `Quality too low (${validation.overallAccuracy}/10) — regenerating (attempt ${genAttempt + 1}/${MAX_GEN_ATTEMPTS})...`
-        );
-      } else {
-        throw new Error(
-          `Generated script quality too low after ${MAX_GEN_ATTEMPTS} attempts: ${validation.overallAccuracy}/10`
-        );
+        // Test failed execution - retrieve the errors to heal the next attempt
+        const failedTestLogs = testResult.tests
+          .filter((t: any) => t.status === "failed")
+          .map((t: any) => `Test "${t.title}" failed with error: ${t.error}`)
+          .join("\n");
+
+        logger.warn(`⚠ Test execution failed at runtime:\n${failedTestLogs}`);
+        
+        if (genAttempt < MAX_GEN_ATTEMPTS) {
+          logger.warn(`Initiating self-healing loop: feeding failure logs back to generator...`);
+          errorFeedbackContext = `The generated test script failed during runtime execution with the following errors:\n${failedTestLogs}\n\nPlease inspect the code and element selectors, correct the locator logic, ensure dynamic element visibility is properly awaited, and regenerate the script.`;
+        } else {
+          logger.error(`Self-healing threshold reached. Failed to solve issues after ${MAX_GEN_ATTEMPTS} runs.`);
+        }
+      } catch (execError) {
+        logger.error(`Execution error encountered: ${execError}`);
+        if (genAttempt < MAX_GEN_ATTEMPTS) {
+          errorFeedbackContext = `Execution failed with subprocess crash error: ${execError}`;
+        } else {
+          throw execError;
+        }
       }
     }
 
-
-    logger.info("\n" + "=".repeat(60));
-    logger.info("STEP 5: Executing Tests");
-    logger.info("=".repeat(60));
-    const testResult = await ExecutorAgent.execute(scriptPath);
-    
     // Save raw test results
     const rawReportPath = path.join("reports", "raw", "result.json");
-    ExecutorAgent.saveResults(testResult, rawReportPath);
-    logger.success(`Raw results saved to ${rawReportPath}`);
+    if (testResult) {
+      ExecutorAgent.saveResults(testResult, rawReportPath);
+      logger.success(`Raw results saved to ${rawReportPath}`);
+    }
 
     logger.info("\n" + "=".repeat(60));
     logger.info("STEP 6: Analyzing Results");
@@ -133,7 +157,7 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
     // Separate pipeline completion from test status
     logger.success("✓ Pipeline completed successfully");
     
-    if (testResult.failed === 0) {
+    if (testResult && testResult.failed === 0) {
       logger.success("✓ All tests passed");
       return {
         pipelineStatus: "success",
@@ -142,12 +166,14 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
         message: "Pipeline and tests completed successfully"
       };
     } else {
-      logger.error(`✗ ${testResult.failed} test(s) failed`);
+      const failedCount = testResult ? testResult.failed : 1;
+      const totalCount = testResult ? testResult.total : 1;
+      logger.error(`✗ ${failedCount} test(s) failed`);
       return {
         pipelineStatus: "success",
         testStatus: "failed",
         exitCode: 1,
-        message: `Pipeline completed but ${testResult.failed}/${testResult.total} tests failed`
+        message: `Pipeline completed but ${failedCount}/${totalCount} tests failed`
       };
     }
 
@@ -160,4 +186,8 @@ export async function orchestrator(prompt: string): Promise<OrchestrationResult>
       message: `Orchestrator error: ${error}`
     };
   }
+}
+
+function isAuthenticationError(error: unknown): boolean {
+  return /No authentication information found|COPILOT_GITHUB_TOKEN|GH_TOKEN|GITHUB_TOKEN|gh auth login/i.test(String(error));
 }
