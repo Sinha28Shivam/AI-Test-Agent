@@ -37,7 +37,6 @@ build/
 /reports/final/
 /reports/screenshots/
 /reports/traces/
-/tests/generated/
 .nyc_output/
 coverage/
 *.lcov
@@ -45,9 +44,9 @@ coverage/
 # ============================================================================
 # Playwright
 # ============================================================================
-/tests/.auth/
+
 /tests/fixtures/
-.auth/
+
 
 # ============================================================================
 # IDE & Editor
