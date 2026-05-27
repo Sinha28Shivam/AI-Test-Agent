@@ -1,0 +1,19 @@
+prompt: |
+  "environment": "local",
+  "steps": [
+    "Navigate to https://www.msn.com/en-in",
+    "Wait for the page to fully load and network to stabilize",
+    "Click on 'Personalize'",
+    "Wait for personalize dialog/panel",
+    "Focus on the search field",
+    "Type 'The Times Of India' into the search field",
+    "Press Enter to search",
+    "Wait for the search results to load",
+    "Click the '+'(Follow) for 'The Times Of India'",
+    "Clear the search field",
+    "Type 'India Today' into the search field",
+    "Press Enter to search",
+    "Wait for the search results to load",
+    "Click the '+'(Follow) for 'India Today'",
+    "Close the personalize dialog"
+    ]
