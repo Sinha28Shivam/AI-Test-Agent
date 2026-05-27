@@ -1,91 +1,55 @@
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
 
-test.describe('MSN Personalization - Follow Publications', () => {
-  test('Test execution', async ({ page }) => {
-    // Step 1: Navigate to https://www.msn.com/en-in
-    await page.goto('https://www.msn.com/en-in', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'reports/screenshots/step1.png' });
+test.describe('navigation', () => {
+  const url = 'https://www.msn.com/en-in/money';
+  test.beforeEach(async ({ page }) => {
+    fs.mkdirSync('reports/screenshots', { recursive: true });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.screenshot({ path: 'reports/screenshots/step1.png', fullPage: true });
+  });
 
-    // Step 2: Wait for the page to fully load and network to stabilize
-    const navBar = page.locator('[role="navigation"]').first();
-    await navBar.waitFor({ state: 'visible', timeout: 15000 });
-    await page.screenshot({ path: 'reports/screenshots/step2.png' });
+  test('Navigate to Money, search Nifty, and verify results', async ({ page }) => {
+    // Step 2: Wait for the money section to load (prefer heading "Market Brief")
+    const marketHeading = page.getByRole('heading', { name: /Market Brief/i }).first();
+    try {
+      await marketHeading.waitFor({ state: 'visible', timeout: 15000 });
+    } catch (err) {
+      // Fallback: wait for a stable search input if the heading isn't present
+      const fallbackHeading = page.getByRole('heading', { name: /latest/i }).first();
+      await fallbackHeading.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    }
+    await page.screenshot({ path: 'reports/screenshots/step2.png', fullPage: true });
 
-    // Step 3: Click on 'Personalize'
-    const personalizeBtn = page.getByRole('button', { name: /personalize/i }).first();
-    await personalizeBtn.waitFor({ state: 'visible', timeout: 10000 });
-    await personalizeBtn.click();
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: 'reports/screenshots/step3.png' });
+    // Step 3: Locate the search box for stock market or news (prefer placeholder)
+    let searchInput = page.getByPlaceholder('Search stocks, ETFs, & more').first();
+    try {
+      await searchInput.waitFor({ state: 'visible', timeout: 15000 });
+    } catch (err) {
+      // Fallbacks: placeholder "Search the web" or id "#q"
+      searchInput = page.getByPlaceholder('Search the web').first();
+      try {
+        await searchInput.waitFor({ state: 'visible', timeout: 8000 });
+      } catch (err2) {
+        searchInput = page.locator('#q').first();
+        await searchInput.waitFor({ state: 'visible', timeout: 8000 });
+      }
+    }
+    await page.screenshot({ path: 'reports/screenshots/step3.png', fullPage: true });
 
-    // Step 4: Wait for personalize dialog/panel
-    const searchBox = page.locator('input#discover-search-box').first();
-    await searchBox.waitFor({ state: 'visible', timeout: 15000 });
-    await page.screenshot({ path: 'reports/screenshots/step4.png' });
+    // Step 4: Type 'Nifty' into the search input and press Enter
+    await searchInput.fill(''); // clear for stability
+    await searchInput.fill('Nifty');
+    await searchInput.press('Enter');
+    await page.screenshot({ path: 'reports/screenshots/step4.png', fullPage: true });
 
-    // Step 5: Focus on the search field
-    await searchBox.focus();
-    await page.screenshot({ path: 'reports/screenshots/step5.png' });
+    // Step 5: Wait for search results to load - look for a card or text containing 'Nifty'
+    const resultLocator = page.getByText(/Nifty/i).first();
+    await resultLocator.waitFor({ state: 'visible', timeout: 15000 });
+    await page.screenshot({ path: 'reports/screenshots/step5.png', fullPage: true });
 
-    // Step 6: Type 'The Times Of India' into the search field
-    await searchBox.fill('The Times Of India');
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: 'reports/screenshots/step6.png' });
-
-    // Step 7: Press Enter to search
-    await searchBox.press('Enter');
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'reports/screenshots/step7.png' });
-
-    // Step 8: Wait for the search results to load
-    const searchResults = page.locator('[aria-label*="Follow The Times of India"]').first();
-    await searchResults.waitFor({ state: 'visible', timeout: 15000 });
-    await page.screenshot({ path: 'reports/screenshots/step8.png' });
-
-    // Step 9: Click the '+'(Follow) for 'The Times Of India'
-    const followTOI = page.locator('[aria-label*="Follow The Times of India"]').first();
-    await followTOI.waitFor({ state: 'visible', timeout: 10000 });
-    await followTOI.click();
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: 'reports/screenshots/step9.png' });
-
-    // Step 10: Clear the search field
-    await searchBox.clear();
-    await page.waitForTimeout(800);
-    await page.screenshot({ path: 'reports/screenshots/step10.png' });
-
-    // Step 11: Type 'India Today' into the search field
-    await searchBox.fill('India Today');
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: 'reports/screenshots/step11.png' });
-
-    // Step 12: Press Enter to search
-    await searchBox.press('Enter');
-    await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'reports/screenshots/step12.png' });
-
-    // Step 13: Wait for the search results to load
-    const indiaResultsContainer = page.locator('[aria-label*="Follow India Today"]').first();
-    await indiaResultsContainer.waitFor({ state: 'visible', timeout: 15000 });
-    await page.screenshot({ path: 'reports/screenshots/step13.png' });
-
-    // Step 14: Click the '+'(Follow) for 'India Today'
-    const followIndiaToday = page.locator('[aria-label*="Follow India Today"]').first();
-    await followIndiaToday.waitFor({ state: 'visible', timeout: 10000 });
-    await followIndiaToday.click();
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: 'reports/screenshots/step14.png' });
-
-    // Step 15: Close the personalize dialog
-    const closeBtn = page.locator('#close-button, fluent-button#close-button').first();
-    await closeBtn.waitFor({ state: 'visible', timeout: 10000 });
-    await closeBtn.click();
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: 'reports/screenshots/step15.png' });
-
-    // Verify personalization panel is closed
-    const panelClosed = page.locator('input#discover-search-box').first();
-    await expect(panelClosed).not.toBeVisible({ timeout: 5000 });
+    // Step 6: Assert that at least one search result or index card containing 'Nifty' is visible
+    await expect(resultLocator).toBeVisible();
+    await page.screenshot({ path: 'reports/screenshots/step6.png', fullPage: true });
   });
 });
