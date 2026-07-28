@@ -1,0 +1,25 @@
+scenarios:
+  - id: 4
+    name: MSN-001 Homepage Load Verification
+    prompt: |-
+      Navigate to https://www.msn.com/en-in,
+      Verify page title,
+      Verify homepage sections,
+      Take screenshot
+  - id: 7
+    name: MSN-004 Search Functionality and Response Time Verification
+    prompt: |-
+      Navigate to https://www.msn.com/en-in,
+      Locate the search box,
+      Search for Technology,
+      Submit search,
+      Measure response time,
+      Verify search results,
+      Take screenshot
+  - id: 9
+    name: MSN-006 Performance Verification
+    prompt: |-
+      Open MSN homepage,
+      Measure page load time,
+      Verify responsiveness,
+      Capture performance screenshot

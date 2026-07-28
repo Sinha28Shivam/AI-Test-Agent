@@ -1,0 +1,82 @@
+# Azure DevOps CI/CD Pipeline for AI Test Agent
+# This pipeline synchronizes test scenarios from ADO Test Plans, executes them via Playwright,
+# and publishes the test results back to the ADO Test Runs/Execute dashboard.
+
+trigger: none # Triggered manually or via ADO schedule
+
+pool:
+  vmImage: 'ubuntu-latest' # Standard virtual machine image
+
+variables:
+  # Link the variable group created in ADO Library
+  - group: TestingAgentSecret
+  
+  # Default project settings as name/value pairs (required when combining with groups)
+  - name: ADO_ORG
+    value: 'sharmahima'
+  - name: ADO_PROJECT
+    value: 'Test Lumen'
+  - name: ADO_PLAN_ID
+    value: '1'
+  - name: ADO_SUITE_ID
+    value: '2'
+  - name: REPORTER_TYPE
+    value: 'azure'
+
+steps:
+  - script: |
+      rm -f .env
+      touch .env
+      
+      write_var() {
+        local name=$1
+        local val=$2
+        if [[ "$val" != "" && "$val" != "\$($name)" ]]; then
+          echo "$name=$val" >> .env
+        fi
+      }
+      
+      write_var "ADO_PAT" "$(ADO_PAT)"
+      write_var "ADO_ORG" "$(ADO_ORG)"
+      write_var "ADO_PROJECT" "$(ADO_PROJECT)"
+      write_var "ADO_PLAN_ID" "$(ADO_PLAN_ID)"
+      write_var "ADO_SUITE_ID" "$(ADO_SUITE_ID)"
+      write_var "GITHUB_TOKEN" "$(GITHUB_TOKEN)"
+      write_var "OPENAI_API_KEY" "$(OPENAI_API_KEY)"
+      write_var "AZURE_OPENAI_API_KEY" "$(AZURE_OPENAI_API_KEY)"
+      write_var "AZURE_OPENAI_DEPLOYMENT" "$(AZURE_OPENAI_DEPLOYMENT)"
+      write_var "REPORTER_TYPE" "$(REPORTER_TYPE)"
+      
+      if [[ "$(AZURE_OPENAI_ENDPOINT)" != "" && "$(AZURE_OPENAI_ENDPOINT)" != "\$(AZURE_OPENAI_ENDPOINT)" ]]; then
+        echo "AZURE_OPENAI_ENDPOINT=$(AZURE_OPENAI_ENDPOINT)" >> .env
+      elif [[ "$(AZURF_OPENAI_ENDPOINT)" != "" && "$(AZURF_OPENAI_ENDPOINT)" != "\$(AZURF_OPENAI_ENDPOINT)" ]]; then
+        echo "AZURE_OPENAI_ENDPOINT=$(AZURF_OPENAI_ENDPOINT)" >> .env
+      fi
+      
+      echo "TRICK_COPILOT_LOGS=false" >> .env
+      
+      docker compose up --build --exit-code-from test-agent
+    displayName: 'Build and Execute AI Multi-Agent Test Stack'
+
+  - script: |
+      touch .env
+      docker compose down
+    displayName: 'Cleanup Docker Containers'
+    condition: always()
+
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: 'test-results/allure-report'
+      artifactName: 'AllureReport'
+      publishLocation: 'pipeline'
+    displayName: 'Publish Allure Report HTML Artifact'
+    condition: always()
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '**/results.xml'
+      mergeTestResults: true
+      failTaskOnFailedTests: true
+    displayName: 'Publish Test Results to Azure DevOps'
+    condition: always()

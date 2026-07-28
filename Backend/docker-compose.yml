@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "1234"
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:6-jammy
+    container_name: agent-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ping: 1})' --quiet || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  test-agent:
+    build: .
+    container_name: test-agent
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      POSTGRES_URI: postgresql://postgres:1234@postgres:5432/mydb
+      MONGODB_URI: mongodb://mongo:27017/mydb
+      REDIS_URI: redis://redis:6379
+      # Dynamically inject/overwrite variables from the host/pipeline environment
+      ADO_PAT: ${ADO_PAT:-}
+      ADO_ORG: ${ADO_ORG:-}
+      ADO_PROJECT: ${ADO_PROJECT:-}
+      ADO_PLAN_ID: ${ADO_PLAN_ID:-}
+      ADO_SUITE_ID: ${ADO_SUITE_ID:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      REPORTER_TYPE: ${REPORTER_TYPE:-}
+      TRICK_COPILOT_LOGS: ${TRICK_COPILOT_LOGS:-}
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  mongo-data:
